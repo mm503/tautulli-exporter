@@ -1,11 +1,7 @@
-FROM alpine:3.22.0
+FROM python:3.13.5-alpine3.22
 
-RUN apk upgrade --no-cache && \
-  apk add --no-cache \
-  python3 \
-  py3-pip \
-  py3-requests \
-  py3-prometheus-client
+COPY requirements.txt requirements.txt
+RUN pip3 install -r requirements.txt
 
 COPY main.py /app/main.py
 WORKDIR /app
