@@ -5,8 +5,9 @@ import json
 import logging
 import requests
 import time
+import signal
 from urllib.parse import urlparse, urljoin
-from prometheus_client import start_http_server, Gauge, generate_latest, REGISTRY
+from prometheus_client import Gauge, generate_latest, REGISTRY
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 import threading
@@ -39,18 +40,20 @@ transcode_container = Gauge('plex_transcode_container_sessions', 'Container tran
 consecutive_failures = 0
 MAX_CONSECUTIVE_FAILURES = 5
 last_successful_scrape = 0
+metrics_lock = threading.Lock()
+
+# Shutdown event for graceful termination
+shutdown_event = threading.Event()
 
 class HealthHandler(BaseHTTPRequestHandler):
     """Health check handler with minimal logging"""
 
-    def log_message(self, format, *args):
+    def log_message(self, fmt, *args):
         """Override to suppress access logs except in debug mode"""
         if LOG_LEVEL == 'DEBUG':
-            logger.debug(f"Health check: {format % args}")
+            logger.debug(f"Health check: {fmt % args}")
 
     def do_GET(self):
-        global last_successful_scrape, consecutive_failures
-
         if self.path == '/healthz':
             # Liveness probe - always return 200 if service is running
             self.send_response(200)
@@ -60,15 +63,16 @@ class HealthHandler(BaseHTTPRequestHandler):
 
         elif self.path == '/ready':
             # Readiness probe - check if we can scrape data
-            time_since_last_success = time.time() - last_successful_scrape
+            with metrics_lock:
+                last_scrape = last_successful_scrape
+                failures = consecutive_failures
+
+            time_since_last_success = time.time() - last_scrape
 
             # Consider ready if:
             # 1. Never scraped yet (startup grace period)
-            # 2. Last successful scrape was within 2 intervals
-            # 3. Not in circuit breaker state
-            if (last_successful_scrape == 0 or
-                time_since_last_success < SCRAPE_INTERVAL * 2 and
-                consecutive_failures < MAX_CONSECUTIVE_FAILURES):
+            # 2. Last successful scrape was within 2 intervals AND not in circuit breaker state
+            if last_scrape == 0 or (time_since_last_success < SCRAPE_INTERVAL * 2 and failures < MAX_CONSECUTIVE_FAILURES):
                 self.send_response(200)
                 self.send_header('Content-type', 'text/plain')
                 self.end_headers()
@@ -77,7 +81,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 self.send_response(503)
                 self.send_header('Content-type', 'text/plain')
                 self.end_headers()
-                self.wfile.write(f'NOT READY: Last success {int(time_since_last_success)}s ago, failures: {consecutive_failures}'.encode())
+                self.wfile.write(f'NOT READY: Last success {int(time_since_last_success)}s ago, failures: {failures}'.encode())
 
         elif self.path == '/metrics':
             # Generate metrics using prometheus_client
@@ -142,9 +146,10 @@ def get_tautulli_activity():
     """Fetch activity data from Tautulli API"""
     global consecutive_failures, last_successful_scrape
 
-    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-        logger.error(f"Circuit breaker active: {consecutive_failures} consecutive failures")
-        return
+    with metrics_lock:
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            logger.error(f"Circuit breaker active: {consecutive_failures} consecutive failures")
+            return
 
     # Properly construct the API URL
     api_endpoint = urljoin(TAUTULLI_URL + '/', 'api/v2')
@@ -167,8 +172,9 @@ def get_tautulli_activity():
         sessions = data['response']['data'].get('sessions', [])
 
         # Reset failure counter on success
-        consecutive_failures = 0
-        last_successful_scrape = time.time()
+        with metrics_lock:
+            consecutive_failures = 0
+            last_successful_scrape = time.time()
 
         # Initialize counters
         total_streams = len(sessions)
@@ -220,20 +226,36 @@ def get_tautulli_activity():
         )
 
     except requests.exceptions.Timeout:
-        consecutive_failures += 1
-        logger.error(f"Request timeout after {REQUEST_TIMEOUT}s (failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES})")
+        with metrics_lock:
+            consecutive_failures += 1
+            failure_count = consecutive_failures
+        logger.error(f"Request timeout after {REQUEST_TIMEOUT}s (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except requests.exceptions.ConnectionError as e:
-        consecutive_failures += 1
-        logger.error(f"Connection error: {e} (failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES})")
+        with metrics_lock:
+            consecutive_failures += 1
+            failure_count = consecutive_failures
+        logger.error(f"Connection error: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except requests.exceptions.HTTPError as e:
-        consecutive_failures += 1
-        logger.error(f"HTTP error: {e} (failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES})")
+        with metrics_lock:
+            consecutive_failures += 1
+            failure_count = consecutive_failures
+        logger.error(f"HTTP error: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except json.JSONDecodeError as e:
-        consecutive_failures += 1
-        logger.error(f"Invalid JSON response: {e} (failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES})")
+        with metrics_lock:
+            consecutive_failures += 1
+            failure_count = consecutive_failures
+        logger.error(f"Invalid JSON response: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except Exception as e:
-        consecutive_failures += 1
-        logger.error(f"Unexpected error: {e} (failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES})")
+        with metrics_lock:
+            consecutive_failures += 1
+            failure_count = consecutive_failures
+        logger.error(f"Unexpected error: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully"""
+    signal_name = signal.Signals(signum).name
+    logger.info(f"Received {signal_name}, initiating graceful shutdown")
+    shutdown_event.set()
 
 def main():
     """Main entry point"""
@@ -246,6 +268,14 @@ def main():
 
     # Validate configuration
     validate_config()
+
+    # Register signal handlers for graceful shutdown
+    # Note: SIGKILL and SIGSTOP cannot be caught
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    if hasattr(signal, 'SIGHUP'):
+        signal.signal(signal.SIGHUP, signal_handler)
+    logger.info("Signal handlers registered for graceful shutdown")
 
     # Start HTTP server with health endpoints
     try:
@@ -261,17 +291,20 @@ def main():
         sys.exit(1)
 
     # Main loop
-    while True:
+    while not shutdown_event.is_set():
         try:
             get_tautulli_activity()
-            time.sleep(SCRAPE_INTERVAL)
-        except KeyboardInterrupt:
-            logger.info("Received shutdown signal")
-            httpd.shutdown()
-            break
         except Exception as e:
             logger.error(f"Unexpected error in main loop: {e}")
-            time.sleep(SCRAPE_INTERVAL)
+
+        # Wait for SCRAPE_INTERVAL or until shutdown is requested
+        if shutdown_event.wait(timeout=SCRAPE_INTERVAL):
+            break
+
+    # Cleanup on shutdown
+    logger.info("Shutting down HTTP server")
+    httpd.shutdown()
+    logger.info("Exporter stopped gracefully")
 
 if __name__ == '__main__':
     main()
