@@ -35,6 +35,10 @@ active_streams_transcode = Gauge('plex_active_streams_transcode', 'Number of tra
 transcode_video = Gauge('plex_transcode_video_sessions', 'Video transcoding sessions')
 transcode_audio = Gauge('plex_transcode_audio_sessions', 'Audio transcoding sessions')
 transcode_container = Gauge('plex_transcode_container_sessions', 'Container transcoding sessions')
+active_streams_direct_stream = Gauge('plex_active_streams_direct_stream', 'Number of direct stream sessions')
+bandwidth_total = Gauge('plex_bandwidth_total_kbps', 'Total Plex streaming bandwidth (kbps)')
+bandwidth_lan = Gauge('plex_bandwidth_lan_kbps', 'LAN streaming bandwidth (kbps)')
+bandwidth_wan = Gauge('plex_bandwidth_wan_kbps', 'WAN streaming bandwidth (kbps)')
 
 # Track consecutive failures for circuit breaker pattern
 consecutive_failures = 0
@@ -169,28 +173,35 @@ def get_tautulli_activity():
             error_msg = data.get('response', {}).get('message', 'Unknown error')
             raise Exception(f"API returned error: {error_msg}")
 
-        sessions = data['response']['data'].get('sessions', [])
+        activity_data = data['response']['data']
+        sessions = activity_data.get('sessions', [])
 
         # Reset failure counter on success
         with metrics_lock:
             consecutive_failures = 0
             last_successful_scrape = time.time()
 
-        # Initialize counters
-        total_streams = len(sessions)
-        direct_streams = 0
-        transcode_streams = 0
+        # Read aggregate counts from activity data (pre-calculated by Tautulli)
+        total_streams = int(activity_data.get('stream_count', 0))
+        direct_streams = int(activity_data.get('stream_count_direct_play', 0))
+        direct_stream_streams = int(activity_data.get('stream_count_direct_stream', 0))
+        transcode_streams = int(activity_data.get('stream_count_transcode', 0))
+
+        # Bandwidth (kbps from Tautulli API)
+        total_bw = int(activity_data.get('total_bandwidth', 0))
+        lan_bw = int(activity_data.get('lan_bandwidth', 0))
+        wan_bw = int(activity_data.get('wan_bandwidth', 0))
+
+        # Per-component transcode analysis (from individual sessions)
         video_transcodes = 0
         audio_transcodes = 0
         container_transcodes = 0
 
-        # Analyze each session
         for session in sessions:
             video_decision = session.get('transcode_video_decision', 'direct play')
             audio_decision = session.get('transcode_audio_decision', 'direct play')
             container_decision = session.get('transcode_container_decision', 'direct play')
 
-            # Count transcode types
             if video_decision == 'transcode':
                 video_transcodes += 1
             if audio_decision == 'transcode':
@@ -198,30 +209,31 @@ def get_tautulli_activity():
             if container_decision == 'transcode':
                 container_transcodes += 1
 
-            # Overall stream classification
-            if any(decision == 'transcode' for decision in
-                   [video_decision, audio_decision, container_decision]):
-                transcode_streams += 1
-            else:
-                direct_streams += 1
-
         # Update metrics
         active_streams_total.set(total_streams)
         active_streams_direct.set(direct_streams)
+        active_streams_direct_stream.set(direct_stream_streams)
         active_streams_transcode.set(transcode_streams)
         transcode_video.set(video_transcodes)
         transcode_audio.set(audio_transcodes)
         transcode_container.set(container_transcodes)
+        bandwidth_total.set(total_bw)
+        bandwidth_lan.set(lan_bw)
+        bandwidth_wan.set(wan_bw)
 
         logger.debug(
             "Metrics updated",
             extra={
                 "total_streams": total_streams,
                 "direct_streams": direct_streams,
+                "direct_stream_streams": direct_stream_streams,
                 "transcode_streams": transcode_streams,
                 "video_transcodes": video_transcodes,
                 "audio_transcodes": audio_transcodes,
-                "container_transcodes": container_transcodes
+                "container_transcodes": container_transcodes,
+                "bandwidth_total_kbps": total_bw,
+                "bandwidth_lan_kbps": lan_bw,
+                "bandwidth_wan_kbps": wan_bw
             }
         )
 
