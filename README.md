@@ -14,11 +14,16 @@ A Prometheus exporter for Plex Media Server metrics via Tautulli API. Designed f
 | Metric | Type | Description |
 |--------|------|-------------|
 | `plex_active_streams_total` | Gauge | Total number of active Plex streams |
-| `plex_active_streams_direct` | Gauge | Number of direct play streams |
+| `plex_active_streams_direct` | Gauge | Number of non-transcoding streams (direct play + direct stream) |
+| `plex_active_streams_direct_play` | Gauge | Number of direct play sessions |
+| `plex_active_streams_direct_stream` | Gauge | Number of direct stream sessions |
 | `plex_active_streams_transcode` | Gauge | Number of transcoding streams |
 | `plex_transcode_video_sessions` | Gauge | Video transcoding sessions |
 | `plex_transcode_audio_sessions` | Gauge | Audio transcoding sessions |
 | `plex_transcode_container_sessions` | Gauge | Container transcoding sessions |
+| `plex_bandwidth_total_kbps` | Gauge | Total Plex streaming bandwidth (kbps) |
+| `plex_bandwidth_lan_kbps` | Gauge | LAN streaming bandwidth (kbps) |
+| `plex_bandwidth_wan_kbps` | Gauge | WAN streaming bandwidth (kbps) |
 
 ## Configuration
 
@@ -155,7 +160,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY plex_exporter.py .
+COPY main.py .
 
 # Non-root user
 RUN useradd -m -u 1000 exporter
@@ -163,7 +168,7 @@ USER exporter
 
 EXPOSE 8000
 
-CMD ["python", "-u", "plex_exporter.py"]
+CMD ["python", "-u", "main.py"]
 ```
 
 ## requirements.txt
@@ -188,11 +193,24 @@ plex_active_streams_direct
 plex_active_streams_transcode
 ```
 
+**Direct Play vs Direct Stream:**
+```promql
+plex_active_streams_direct_play
+plex_active_streams_direct_stream
+```
+
 **Transcoding Breakdown:**
 ```promql
 plex_transcode_video_sessions
 plex_transcode_audio_sessions
 plex_transcode_container_sessions
+```
+
+**Bandwidth:**
+```promql
+plex_bandwidth_total_kbps
+plex_bandwidth_lan_kbps
+plex_bandwidth_wan_kbps
 ```
 
 ## Error Handling
@@ -234,7 +252,7 @@ Set `LOG_LEVEL=DEBUG` to see detailed information including:
 export TAUTULLI_URL=http://localhost:8181
 export TAUTULLI_API_KEY=your-key
 export LOG_LEVEL=DEBUG
-python3 plex_exporter.py
+python3 main.py
 ```
 
 ### Testing
