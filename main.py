@@ -30,12 +30,13 @@ REQUEST_TIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', '10'))
 
 # Prometheus metrics
 active_streams_total = Gauge('plex_active_streams_total', 'Total number of active Plex streams')
-active_streams_direct = Gauge('plex_active_streams_direct', 'Number of direct play streams')
+active_streams_direct = Gauge('plex_active_streams_direct', 'Number of non-transcoding streams (direct play + direct stream)')
+active_streams_direct_play = Gauge('plex_active_streams_direct_play', 'Number of direct play sessions')
+active_streams_direct_stream = Gauge('plex_active_streams_direct_stream', 'Number of direct stream sessions')
 active_streams_transcode = Gauge('plex_active_streams_transcode', 'Number of transcoding streams')
 transcode_video = Gauge('plex_transcode_video_sessions', 'Video transcoding sessions')
 transcode_audio = Gauge('plex_transcode_audio_sessions', 'Audio transcoding sessions')
 transcode_container = Gauge('plex_transcode_container_sessions', 'Container transcoding sessions')
-active_streams_direct_stream = Gauge('plex_active_streams_direct_stream', 'Number of direct stream sessions')
 bandwidth_total = Gauge('plex_bandwidth_total_kbps', 'Total Plex streaming bandwidth (kbps)')
 bandwidth_lan = Gauge('plex_bandwidth_lan_kbps', 'LAN streaming bandwidth (kbps)')
 bandwidth_wan = Gauge('plex_bandwidth_wan_kbps', 'WAN streaming bandwidth (kbps)')
@@ -183,9 +184,12 @@ def get_tautulli_activity():
 
         # Read aggregate counts from activity data (pre-calculated by Tautulli)
         total_streams = int(activity_data.get('stream_count', 0))
-        direct_streams = int(activity_data.get('stream_count_direct_play', 0))
+        direct_play_streams = int(activity_data.get('stream_count_direct_play', 0))
         direct_stream_streams = int(activity_data.get('stream_count_direct_stream', 0))
         transcode_streams = int(activity_data.get('stream_count_transcode', 0))
+
+        # Backwards compatible: direct = direct_play + direct_stream
+        direct_streams = direct_play_streams + direct_stream_streams
 
         # Bandwidth (kbps from Tautulli API)
         total_bw = int(activity_data.get('total_bandwidth', 0))
@@ -212,6 +216,7 @@ def get_tautulli_activity():
         # Update metrics
         active_streams_total.set(total_streams)
         active_streams_direct.set(direct_streams)
+        active_streams_direct_play.set(direct_play_streams)
         active_streams_direct_stream.set(direct_stream_streams)
         active_streams_transcode.set(transcode_streams)
         transcode_video.set(video_transcodes)
@@ -226,6 +231,7 @@ def get_tautulli_activity():
             extra={
                 "total_streams": total_streams,
                 "direct_streams": direct_streams,
+                "direct_play_streams": direct_play_streams,
                 "direct_stream_streams": direct_stream_streams,
                 "transcode_streams": transcode_streams,
                 "video_transcodes": video_transcodes,
