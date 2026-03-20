@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/mm503/tautulli-exporter/compare/v0.2.0...v0.2.1) (2026-03-20)
+
+
+### Bug Fixes
+
+* **ci:** actually push the release ([5b6c1f2](https://github.com/mm503/tautulli-exporter/commit/5b6c1f223ee95b37482d71790db51b574b35a49e))
+
 ## [0.2.0](https://github.com/mm503/tautulli-exporter/compare/v0.1.0...v0.2.0) (2026-03-20)
 
 
