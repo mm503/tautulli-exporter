@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/mm503/tautulli-exporter/compare/v0.2.1...v0.2.2) (2026-03-20)
+
+
+### Bug Fixes
+
+* **ci:** strip v from docker tags ([27ded87](https://github.com/mm503/tautulli-exporter/commit/27ded874b80a3541e99e00a4c17add0239b114b8))
+
 ## [0.2.1](https://github.com/mm503/tautulli-exporter/compare/v0.2.0...v0.2.1) (2026-03-20)
 
 
