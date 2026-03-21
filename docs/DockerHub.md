@@ -1,5 +1,21 @@
 # Tautulli Exporter
 
+## Quick Start
+
+```bash
+docker run -d \
+  -e TAUTULLI_URL=http://your-tautulli:8181 \
+  -e TAUTULLI_API_KEY=your-api-key \
+  -p 8000:8000 \
+  mm404/tautulli-exporter
+```
+
+## Endpoints
+
+- `/metrics` - Prometheus metrics
+- `/healthz` - Liveness probe (always 200 if running)
+- `/ready` - Readiness probe (503 if scraping fails)
+
 ## Metrics
 
 | Metric | Type | Description |
