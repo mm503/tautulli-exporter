@@ -1,4 +1,4 @@
-# Plex Exporter
+# Tautulli Exporter
 
 A Prometheus exporter for Plex Media Server metrics via Tautulli API. Designed for Kubernetes deployment with proper health checks, structured logging, and graceful error handling.
 
@@ -49,12 +49,11 @@ All configuration is done via environment variables:
 ### Docker
 
 ```bash
-docker build -t plex-exporter .
 docker run -d \
   -e TAUTULLI_URL=http://your-tautulli:8181 \
   -e TAUTULLI_API_KEY=your-api-key \
   -p 8000:8000 \
-  plex-exporter
+  mm404/tautulli-exporter
 ```
 
 ### Kubernetes
@@ -63,21 +62,21 @@ docker run -d \
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: plex-exporter
+  name: tautulli-exporter
   namespace: monitoring
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: plex-exporter
+      app: tautulli-exporter
   template:
     metadata:
       labels:
-        app: plex-exporter
+        app: tautulli-exporter
     spec:
       containers:
-      - name: plex-exporter
-        image: plex-exporter:latest
+      - name: tautulli-exporter
+        image: mm404/tautulli-exporter:latest
         ports:
         - containerPort: 8000
           name: metrics
@@ -114,17 +113,17 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: plex-exporter
+  name: tautulli-exporter
   namespace: monitoring
   labels:
-    app: plex-exporter
+    app: tautulli-exporter
 spec:
   ports:
   - port: 8000
     targetPort: 8000
     name: metrics
   selector:
-    app: plex-exporter
+    app: tautulli-exporter
 ---
 apiVersion: v1
 kind: Secret
@@ -144,38 +143,8 @@ Add to your `prometheus.yml`:
 scrape_configs:
   - job_name: 'plex'
     static_configs:
-      - targets: ['plex-exporter.monitoring.svc.cluster.local:8000']
+      - targets: ['tautulli-exporter.monitoring.svc.cluster.local:8000']
     scrape_interval: 30s
-```
-
-## Dockerfile
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application
-COPY main.py .
-
-# Non-root user
-RUN useradd -m -u 1000 exporter
-USER exporter
-
-EXPOSE 8000
-
-CMD ["python", "-u", "main.py"]
-```
-
-## requirements.txt
-
-```
-requests==2.31.0
-prometheus-client==0.19.0
 ```
 
 ## Grafana Dashboard
@@ -213,15 +182,6 @@ plex_bandwidth_lan_kbps
 plex_bandwidth_wan_kbps
 ```
 
-## Error Handling
-
-The exporter implements several reliability features:
-
-1. **Circuit Breaker** - After 5 consecutive failures, stops attempting requests
-2. **Graceful Degradation** - Continues exposing last known metrics during outages
-3. **Structured Logging** - JSON formatted logs for easy parsing in k8s
-4. **Health Checks** - Separate liveness and readiness probes
-
 ## Troubleshooting
 
 ### Exporter won't start
@@ -241,9 +201,9 @@ The exporter implements several reliability features:
 
 ### Debug logging
 Set `LOG_LEVEL=DEBUG` to see detailed information including:
-- API request/response details
+- API request URL
 - Health check requests
-- Metric calculation steps
+- Metrics update confirmation
 
 ## Development
 
