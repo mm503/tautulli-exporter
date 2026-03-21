@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3](https://github.com/mm503/tautulli-exporter/compare/v0.2.2...v0.2.3) (2026-03-21)
+
+
+### Bug Fixes
+
+* **ci:** don't keep pip caches when building img ([a323c21](https://github.com/mm503/tautulli-exporter/commit/a323c21aaff7953357a5465b613fb714788af26f))
+* **ci:** image has correct tag in metadata ([b64e11a](https://github.com/mm503/tautulli-exporter/commit/b64e11a66f387d5325a682f5e3e6e10949d1a656))
+
 ## [0.2.2](https://github.com/mm503/tautulli-exporter/compare/v0.2.1...v0.2.2) (2026-03-20)
 
 
