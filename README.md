@@ -58,12 +58,13 @@ docker run -d \
 
 ### Kubernetes
 
+Remember to update both URL to reflect your Tautulli deployment name and namespace.
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: tautulli-exporter
-  namespace: monitoring
 spec:
   replicas: 1
   selector:
@@ -82,7 +83,7 @@ spec:
           name: metrics
         env:
         - name: TAUTULLI_URL
-          value: "http://tautulli.media.svc.cluster.local:8181"
+          value: "http://tautulli.default.svc.cluster.local:8181"
         - name: TAUTULLI_API_KEY
           valueFrom:
             secretKeyRef:
@@ -114,7 +115,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: tautulli-exporter
-  namespace: monitoring
   labels:
     app: tautulli-exporter
 spec:
@@ -129,7 +129,6 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: tautulli-credentials
-  namespace: monitoring
 type: Opaque
 stringData:
   api-key: "your-tautulli-api-key"
@@ -137,13 +136,13 @@ stringData:
 
 ### Prometheus Configuration
 
-Add to your `prometheus.yml`:
+Add to your `prometheus.yml` (update the `target` to reflect your deployment placement):
 
 ```yaml
 scrape_configs:
   - job_name: 'plex'
     static_configs:
-      - targets: ['tautulli-exporter.monitoring.svc.cluster.local:8000']
+      - targets: ['tautulli-exporter.default.svc.cluster.local:8000']
     scrape_interval: 30s
 ```
 
