@@ -45,6 +45,8 @@ bandwidth_wan = Gauge('plex_bandwidth_wan_kbps', 'WAN streaming bandwidth (kbps)
 consecutive_failures = 0
 MAX_CONSECUTIVE_FAILURES = 5
 last_successful_scrape = 0
+circuit_opened_at = 0
+CIRCUIT_BREAKER_RESET_INTERVAL = 60  # seconds before allowing a probe attempt
 metrics_lock = threading.Lock()
 
 # Shutdown event for graceful termination
@@ -149,12 +151,15 @@ def validate_config():
 
 def get_tautulli_activity():
     """Fetch activity data from Tautulli API"""
-    global consecutive_failures, last_successful_scrape
+    global consecutive_failures, last_successful_scrape, circuit_opened_at
 
     with metrics_lock:
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-            logger.error(f"Circuit breaker active: {consecutive_failures} consecutive failures")
-            return
+            time_since_open = time.time() - circuit_opened_at
+            if time_since_open < CIRCUIT_BREAKER_RESET_INTERVAL:
+                logger.error(f"Circuit breaker active: {consecutive_failures} consecutive failures")
+                return
+            logger.info(f"Circuit breaker half-open: probing after {int(time_since_open)}s")
 
     # Properly construct the API URL
     api_endpoint = urljoin(TAUTULLI_URL + '/', 'api/v2')
@@ -247,26 +252,31 @@ def get_tautulli_activity():
         with metrics_lock:
             consecutive_failures += 1
             failure_count = consecutive_failures
+            circuit_opened_at = time.time()
         logger.error(f"Request timeout after {REQUEST_TIMEOUT}s (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except requests.exceptions.ConnectionError as e:
         with metrics_lock:
             consecutive_failures += 1
             failure_count = consecutive_failures
+            circuit_opened_at = time.time()
         logger.error(f"Connection error: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except requests.exceptions.HTTPError as e:
         with metrics_lock:
             consecutive_failures += 1
             failure_count = consecutive_failures
+            circuit_opened_at = time.time()
         logger.error(f"HTTP error: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except json.JSONDecodeError as e:
         with metrics_lock:
             consecutive_failures += 1
             failure_count = consecutive_failures
+            circuit_opened_at = time.time()
         logger.error(f"Invalid JSON response: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
     except Exception as e:
         with metrics_lock:
             consecutive_failures += 1
             failure_count = consecutive_failures
+            circuit_opened_at = time.time()
         logger.error(f"Unexpected error: {e} (failure {failure_count}/{MAX_CONSECUTIVE_FAILURES})")
 
 def signal_handler(signum, frame):
