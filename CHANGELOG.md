@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.4](https://github.com/mm503/tautulli-exporter/compare/v0.2.3...v0.2.4) (2026-05-12)
+
+
+### Bug Fixes
+
+* circuit breaker never recovers after Tautulli comes back up ([19911dc](https://github.com/mm503/tautulli-exporter/commit/19911dc52613a4f445dc8c3417f4647b90a4d326))
+* deps will increase patch version ([8d0dcb4](https://github.com/mm503/tautulli-exporter/commit/8d0dcb4e82738bc676384ecb27eec7fda2804575))
+* **deps:** update actions/setup-python action to v6 ([011189a](https://github.com/mm503/tautulli-exporter/commit/011189ad2dc548ca3862dc3c4501adb6b0a1fc0e))
+* **deps:** update dependency python to 3.14 ([eb756c4](https://github.com/mm503/tautulli-exporter/commit/eb756c4543d49de377738053c2dcd8886f151800))
+* **deps:** update python docker tag to v3.14.5 ([33a1fea](https://github.com/mm503/tautulli-exporter/commit/33a1fead0f83d65567476b12282b61affdbc7a1e))
+
 ## [0.2.3](https://github.com/mm503/tautulli-exporter/compare/v0.2.2...v0.2.3) (2026-03-21)
 
 
