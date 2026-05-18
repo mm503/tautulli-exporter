@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/mm503/tautulli-exporter/compare/v0.2.4...v0.2.5) (2026-05-18)
+
+
+### Bug Fixes
+
+* **deps:** update dependency requests to v2.34.2 ([58b691d](https://github.com/mm503/tautulli-exporter/commit/58b691d4a5608d0f680b340b098988e62825ba04))
+
 ## [0.2.4](https://github.com/mm503/tautulli-exporter/compare/v0.2.3...v0.2.4) (2026-05-12)
 
 
