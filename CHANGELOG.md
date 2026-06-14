@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/mm503/tautulli-exporter/compare/v0.2.5...v0.2.6) (2026-06-14)
+
+
+### Bug Fixes
+
+* **deps:** update python docker tag to v3.14.6 ([03573b2](https://github.com/mm503/tautulli-exporter/commit/03573b2472e7d00a241c4f80ea3b93344b1b31df))
+
 ## [0.2.5](https://github.com/mm503/tautulli-exporter/compare/v0.2.4...v0.2.5) (2026-05-18)
 
 
