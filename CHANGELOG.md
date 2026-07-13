@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/mm503/tautulli-exporter/compare/v0.2.6...v0.2.7) (2026-07-13)
+
+
+### Bug Fixes
+
+* **deps:** update actions/checkout action to v7 ([c02f7de](https://github.com/mm503/tautulli-exporter/commit/c02f7de0f55a7185cfaebf967168ec371db915fc))
+
 ## [0.2.6](https://github.com/mm503/tautulli-exporter/compare/v0.2.5...v0.2.6) (2026-06-14)
 
 
