@@ -211,11 +211,14 @@ Set `LOG_LEVEL=DEBUG` to see detailed information including:
 export TAUTULLI_URL=http://localhost:8181
 export TAUTULLI_API_KEY=your-key
 export LOG_LEVEL=DEBUG
-python3 main.py
+go run .
 ```
 
 ### Testing
 ```bash
+# Run unit tests
+go test ./... -cover
+
 # Check metrics
 curl http://localhost:8000/metrics
 
