@@ -1,6 +1,6 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
+tautulli-exporter
+*.test
+coverage.out
 dist/
 build/
 .env

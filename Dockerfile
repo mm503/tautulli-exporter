@@ -1,12 +1,18 @@
-FROM python:3.14.6-alpine
+FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine AS build
 
-COPY requirements.txt requirements.txt
-RUN pip3 install --no-cache-dir -r requirements.txt
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY main.go ./
 
-COPY main.py /app/main.py
-RUN addgroup -g 1000 appuser && \
-    adduser -D -u 1000 -G appuser -s /bin/sh appuser && \
-    chown -R appuser:appuser /app
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/tautulli-exporter .
+
+FROM scratch
+
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /out/tautulli-exporter /app/tautulli-exporter
 WORKDIR /app
-USER appuser
-CMD ["python3", "main.py"]
+USER 1000:1000
+ENTRYPOINT ["/app/tautulli-exporter"]
