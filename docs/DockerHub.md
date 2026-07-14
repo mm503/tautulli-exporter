@@ -10,6 +10,19 @@ docker run -d \
   mm404/tautulli-exporter
 ```
 
+Or on Kubernetes via Helm:
+
+```bash
+helm repo add tautulli-exporter https://mm503.github.io/tautulli-exporter
+helm install tautulli-exporter tautulli-exporter/tautulli-exporter \
+  --set config.tautulliUrl=http://your-tautulli:8181 \
+  --set config.apiKey=your-api-key \
+  --set image.repository=mm404/tautulli-exporter
+```
+
+The chart defaults to the GHCR copy of this image; the `image.repository`
+override above pulls it from Docker Hub instead.
+
 ## Endpoints
 
 - `/metrics` - Prometheus metrics
