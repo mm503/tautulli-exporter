@@ -1,0 +1,109 @@
+# Default values for tautulli-exporter.
+
+# Exporter configuration, mapped to the container's environment variables.
+config:
+  # -- Tautulli server URL, e.g. http://tautulli.media.svc.cluster.local:8181 (required)
+  tautulliUrl: ""
+  # -- Tautulli API key (Settings -> Web Interface). Stored in a chart-managed Secret.
+  # Prefer existingSecret for anything beyond local testing.
+  apiKey: ""
+  # -- Read the API key from a pre-existing Secret instead of apiKey above.
+  existingSecret:
+    name: ""
+    key: api-key
+  # -- Logging level: DEBUG, INFO, WARNING, ERROR. Empty uses the exporter default (INFO).
+  logLevel: ""
+  # -- Seconds between Tautulli API calls. Empty uses the exporter default (30).
+  scrapeInterval: ""
+  # -- HTTP request timeout in seconds. Empty uses the exporter default (10).
+  requestTimeout: ""
+
+# -- Additional environment variables for the exporter container.
+extraEnv: []
+  # - name: GOMEMLIMIT
+  #   value: 24MiB
+
+replicaCount: 1
+
+image:
+  repository: mm404/tautulli-exporter
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Specifies whether a service account should be created.
+  create: true
+  # -- The exporter does not use the Kubernetes API, so credentials are not mounted.
+  automount: false
+  annotations: {}
+  # -- If not set and create is true, a name is generated using the fullname template.
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+# The image runs a static binary on scratch as UID 1000, so the strict
+# defaults below work out of the box.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  # -- Port for the metrics/health endpoints (also passed to the exporter as METRICS_PORT).
+  port: 8000
+
+# -- Create a ServiceMonitor for the Prometheus Operator (kube-prometheus-stack).
+# Without it, scrape the service directly on /metrics.
+serviceMonitor:
+  enabled: false
+  # -- Prometheus scrape interval; align with config.scrapeInterval.
+  interval: 30s
+  scrapeTimeout: 10s
+  # -- Extra labels, e.g. to match the operator's serviceMonitorSelector.
+  labels: {}
+
+# Steady-state usage is ~15Mi working set and near-zero CPU; the limits leave
+# headroom for GC overhead and transcode-heavy session payloads.
+resources:
+  requests:
+    cpu: 50m
+    memory: 16Mi
+  limits:
+    cpu: 200m
+    memory: 32Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 30
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+volumes: []
+volumeMounts: []
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

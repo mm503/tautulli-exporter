@@ -1,4 +1,4 @@
-tautulli-exporter
+/tautulli-exporter
 *.test
 coverage.out
 dist/
