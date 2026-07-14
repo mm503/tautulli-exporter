@@ -1,0 +1,20 @@
+apiVersion: v2
+name: tautulli-exporter
+description: Prometheus exporter for Plex Media Server metrics via the Tautulli API
+type: application
+home: https://github.com/mm503/tautulli-exporter
+sources:
+  - https://github.com/mm503/tautulli-exporter
+keywords:
+  - prometheus
+  - exporter
+  - plex
+  - tautulli
+  - monitoring
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates. Versions are expected to follow Semantic Versioning (https://semver.org/)
+version: 0.1.0
+
+# This is the version of the exporter image deployed by default (image.tag overrides it).
+appVersion: "1.0.0"
