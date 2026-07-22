@@ -1,0 +1,29 @@
+tautulli-exporter is deployed.
+
+The exporter serves on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "tautulli-exporter.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/metrics
+
+Endpoints:
+  /metrics  - Prometheus metrics
+  /healthz  - liveness probe
+  /ready    - readiness probe
+
+{{- if .Values.serviceMonitor.enabled }}
+
+A ServiceMonitor was created; the Prometheus Operator will pick up the target
+automatically.
+{{- else }}
+
+To scrape it without the Prometheus Operator, add a scrape config:
+
+  scrape_configs:
+    - job_name: 'plex'
+      static_configs:
+        - targets: ['{{ include "tautulli-exporter.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}']
+{{- end }}
+
+Verify it is up:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "tautulli-exporter.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://localhost:{{ .Values.service.port }}/ready
