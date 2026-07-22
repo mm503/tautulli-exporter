@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.0](https://github.com/mm503/tautulli-exporter/compare/v0.2.7...v1.0.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* rewrite exporter in Go
+
+### Features
+
+* rewrite exporter in Go ([5f8436d](https://github.com/mm503/tautulli-exporter/commit/5f8436dd728ff15f725ef5ea82f7c569a379cb95))
+
+
+### Bug Fixes
+
+* **deps:** update actions/setup-go action to v7 ([56ce9e4](https://github.com/mm503/tautulli-exporter/commit/56ce9e4c9001946f65c2b4f3abeb4d94a4a4a9a1))
+* **deps:** update module github.com/prometheus/client_golang to v1.24.0 ([0ffcb74](https://github.com/mm503/tautulli-exporter/commit/0ffcb749d6ca31cca8adeee9b69d113002848ed3))
+
 ## [0.2.7](https://github.com/mm503/tautulli-exporter/compare/v0.2.6...v0.2.7) (2026-07-13)
 
 
