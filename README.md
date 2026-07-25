@@ -56,7 +56,37 @@ docker run -d \
   mm404/tautulli-exporter
 ```
 
-### Kubernetes
+### Helm (recommended for Kubernetes)
+
+```bash
+helm repo add tautulli-exporter https://mm503.github.io/tautulli-exporter
+helm install tautulli-exporter tautulli-exporter/tautulli-exporter \
+  --set config.tautulliUrl=http://tautulli.default.svc.cluster.local:8181 \
+  --set config.apiKey=your-tautulli-api-key
+```
+
+To use a pre-existing Secret instead of putting the API key in values:
+
+```bash
+helm install tautulli-exporter tautulli-exporter/tautulli-exporter \
+  --set config.tautulliUrl=http://tautulli.default.svc.cluster.local:8181 \
+  --set config.existingSecret.name=tautulli-credentials \
+  --set config.existingSecret.key=api-key
+```
+
+Notable values (see [charts/tautulli-exporter/values.yaml](charts/tautulli-exporter/values.yaml) for all options):
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `config.tautulliUrl` | - | Tautulli server URL (required) |
+| `config.apiKey` | - | API key, stored in a chart-managed Secret |
+| `config.existingSecret.name` | - | Use an existing Secret for the API key instead |
+| `config.logLevel` | `INFO` | Exporter log level |
+| `config.scrapeInterval` | `30` | Seconds between Tautulli API calls |
+| `serviceMonitor.enabled` | `false` | Create a ServiceMonitor for the Prometheus Operator |
+| `service.port` | `8000` | Metrics/health port |
+
+### Kubernetes (plain manifests)
 
 Remember to update both URL to reflect your Tautulli deployment name and namespace.
 
@@ -136,7 +166,7 @@ stringData:
 
 ### Prometheus Configuration
 
-Add to your `prometheus.yml` (update the `target` to reflect your deployment placement):
+If you installed via Helm with `serviceMonitor.enabled=true`, the Prometheus Operator discovers the exporter automatically. Otherwise, add to your `prometheus.yml` (update the `target` to reflect your deployment placement):
 
 ```yaml
 scrape_configs:

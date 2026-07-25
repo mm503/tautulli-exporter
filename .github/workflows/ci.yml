@@ -9,8 +9,31 @@ env:
   IMAGE_NAME: mm404/tautulli-exporter
 
 jobs:
+  helm-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+
+      - name: Lint chart
+        run: |
+          helm lint charts/tautulli-exporter \
+            --set config.tautulliUrl=http://tautulli:8181 \
+            --set config.apiKey=ci-dummy-key-0000
+
+      - name: Template chart
+        run: |
+          helm template tautulli-exporter charts/tautulli-exporter \
+            --set config.tautulliUrl=http://tautulli:8181 \
+            --set config.apiKey=ci-dummy-key-0000 \
+            --set serviceMonitor.enabled=true > /dev/null
+
   build:
     runs-on: ubuntu-latest
+    needs: helm-validate
 
     steps:
     - name: Checkout repository
