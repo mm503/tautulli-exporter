@@ -103,8 +103,13 @@ docker run -d \
 
 ### Helm (recommended for Kubernetes)
 
+Charts are published to a Helm repository hosted on GitHub Pages at
+[mm503.github.io/tautulli-exporter](https://mm503.github.io/tautulli-exporter),
+refreshed automatically on each release.
+
 ```bash
 helm repo add tautulli-exporter https://mm503.github.io/tautulli-exporter
+helm repo update
 helm install tautulli-exporter tautulli-exporter/tautulli-exporter \
   --set config.tautulliUrl=http://tautulli.default.svc.cluster.local:8181 \
   --set config.apiKey=your-tautulli-api-key
@@ -126,10 +131,12 @@ Notable values (see [charts/tautulli-exporter/values.yaml](charts/tautulli-expor
 | `config.tautulliUrl` | - | Tautulli server URL (required) |
 | `config.apiKey` | - | API key, stored in a chart-managed Secret |
 | `config.existingSecret.name` | - | Use an existing Secret for the API key instead |
+| `config.existingSecret.key` | `api-key` | Key within that Secret holding the API key |
 | `config.logLevel` | `INFO` | Exporter log level |
 | `config.scrapeInterval` | `30` | Seconds between Tautulli API calls |
+| `config.metricsPort` | `8000` | Port the exporter binds inside the container |
 | `serviceMonitor.enabled` | `false` | Create a ServiceMonitor for the Prometheus Operator |
-| `service.port` | `8000` | Metrics/health port |
+| `service.port` | `8000` | Cluster-facing Service port; targets `config.metricsPort` by name |
 | `image.repository` | `ghcr.io/mm503/tautulli-exporter` | Image repository; set to `mm404/tautulli-exporter` to pull from Docker Hub |
 | `image.tag` | chart `appVersion` | Image tag override |
 
@@ -153,6 +160,10 @@ metadata:
   name: tautulli-exporter
 spec:
   replicas: 1
+  # The exporter polls Tautulli on a timer, so a rolling update would briefly
+  # run two pollers -- duplicating API load and emitting duplicate series.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: tautulli-exporter
@@ -161,6 +172,8 @@ spec:
       labels:
         app: tautulli-exporter
     spec:
+      # The exporter never calls the Kubernetes API.
+      automountServiceAccountToken: false
       containers:
       - name: tautulli-exporter
         # or ghcr.io/mm503/tautulli-exporter:latest
