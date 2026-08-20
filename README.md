@@ -271,6 +271,24 @@ plex_bandwidth_wan_kbps
 - Verify Tautulli is running and accessible
 - Ensure API key has proper permissions
 
+### Recovering from an outage
+Failed scrapes are logged at `ERROR` with a `(failure N/5)` counter. When a scrape
+succeeds again, the exporter logs a single `INFO` line so recovery is explicit:
+
+```json
+{"timestamp":"2026-08-10T03:28:55","level":"INFO","logger":"plex_exporter","message":"Collection resumed after 2 consecutive failures over 60s"}
+```
+
+The duration spans the first failure through the recovering scrape, so at the
+default 30s `SCRAPE_INTERVAL` two consecutive failures cover roughly 60s. If the
+circuit breaker had opened (5 consecutive failures), the same line ends with
+`; circuit breaker closed`.
+
+This line is emitted at `INFO`, while the failures themselves are at `ERROR`. Run
+with `LOG_LEVEL=INFO` (the default) or `DEBUG` to see it — at `WARNING` or `ERROR`
+the failures are logged but the recovery is filtered out, making a resolved outage
+look ongoing.
+
 ### Debug logging
 Set `LOG_LEVEL=DEBUG` to see detailed information including:
 - API request URL

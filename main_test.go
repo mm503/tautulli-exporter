@@ -26,6 +26,7 @@ func resetState() {
 	consecutiveFailures = 0
 	lastSuccessfulScrape = time.Time{}
 	circuitOpenedAt = time.Time{}
+	firstFailureAt = time.Time{}
 	tautulliURL = validURL
 	apiKey = validKey
 	metricsPort = 8000
@@ -203,6 +204,67 @@ func TestSuccessResetsFailureCounterAndTimestamp(t *testing.T) {
 	}
 	if lastSuccessfulScrape.Before(before) {
 		t.Error("last_successful_scrape not updated")
+	}
+}
+
+func TestRecoveryAfterFailuresIsLogged(t *testing.T) {
+	resetState()
+	var buf bytes.Buffer
+	logOut = &buf
+	logLevel = "INFO"
+
+	// Two failures against a dead endpoint, then a working one.
+	tautulliURL = "http://127.0.0.1:1"
+	getTautulliActivity()
+	getTautulliActivity()
+
+	srv, _ := activityServer(t, activityJSON(0, 0, 0, 0, 0, 0, 0, ""))
+	tautulliURL = srv.URL
+	buf.Reset()
+	getTautulliActivity()
+
+	line := buf.String()
+	for _, want := range []string{`"level":"INFO"`, "Collection resumed after 2 consecutive failures"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("recovery log %q missing %s", line, want)
+		}
+	}
+	if strings.Contains(line, "circuit breaker closed") {
+		t.Errorf("circuit breaker was never open, got %q", line)
+	}
+}
+
+func TestRecoveryFromOpenCircuitMentionsBreaker(t *testing.T) {
+	resetState()
+	var buf bytes.Buffer
+	logOut = &buf
+	logLevel = "INFO"
+	srv, _ := activityServer(t, activityJSON(0, 0, 0, 0, 0, 0, 0, ""))
+	tautulliURL = srv.URL
+	consecutiveFailures = maxConsecutiveFailures
+	firstFailureAt = time.Now().Add(-90 * time.Second)
+	circuitOpenedAt = time.Now().Add(-(circuitBreakerResetInterval + time.Second))
+
+	getTautulliActivity()
+
+	line := buf.String()
+	if !strings.Contains(line, "Collection resumed after 5 consecutive failures over 90s; circuit breaker closed") {
+		t.Errorf("unexpected recovery log: %q", line)
+	}
+}
+
+func TestNoRecoveryLogWithoutPriorFailures(t *testing.T) {
+	resetState()
+	var buf bytes.Buffer
+	logOut = &buf
+	logLevel = "INFO"
+	srv, _ := activityServer(t, activityJSON(0, 0, 0, 0, 0, 0, 0, ""))
+	tautulliURL = srv.URL
+
+	getTautulliActivity()
+
+	if strings.Contains(buf.String(), "Collection resumed") {
+		t.Errorf("unexpected recovery log on clean scrape: %q", buf.String())
 	}
 }
 
