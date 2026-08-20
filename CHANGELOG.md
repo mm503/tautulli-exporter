@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.0.0](https://github.com/mm503/tautulli-exporter/compare/v0.2.7...v1.0.0) (2026-08-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* /ready no longer returns 503 when Tautulli is unreachable. Alerts that watched for the pod going NotReady must move to `plex_up == 0`.
+* rewrite exporter in Go
+
+### Features
+
+* add Helm chart ([cea7f19](https://github.com/mm503/tautulli-exporter/commit/cea7f192c4e208fd8c2492a4607476c4474747aa))
+* expose Tautulli scrape health as metrics ([fc89372](https://github.com/mm503/tautulli-exporter/commit/fc893720001fcd36efbd6a5c27aada206ce25c2c))
+* log when collection resumes after failures ([e988174](https://github.com/mm503/tautulli-exporter/commit/e9881742d0fbabb2209c068c767153150123f97c))
+* rewrite exporter in Go ([5f8436d](https://github.com/mm503/tautulli-exporter/commit/5f8436dd728ff15f725ef5ea82f7c569a379cb95))
+
+
+### Bug Fixes
+
+* **chart:** harden pod security and drop unused scaffolding ([e4a6d56](https://github.com/mm503/tautulli-exporter/commit/e4a6d562e364eca3f517472ee1de48231eb7a4fc))
+* **deps:** update actions/setup-go action to v7 ([56ce9e4](https://github.com/mm503/tautulli-exporter/commit/56ce9e4c9001946f65c2b4f3abeb4d94a4a4a9a1))
+* **deps:** update golang docker tag to v1.26.6 ([36101e6](https://github.com/mm503/tautulli-exporter/commit/36101e6acc9e3dac66809a586011066d2834a653))
+* **deps:** update golang docker tag to v1.27.0 ([6356028](https://github.com/mm503/tautulli-exporter/commit/63560286a2abf1010c05d54be405d4d25e5dfb88))
+* **deps:** update module github.com/prometheus/client_golang to v1.24.0 ([0ffcb74](https://github.com/mm503/tautulli-exporter/commit/0ffcb749d6ca31cca8adeee9b69d113002848ed3))
+* **deps:** update module github.com/prometheus/client_golang to v1.24.1 ([e72ed66](https://github.com/mm503/tautulli-exporter/commit/e72ed66225150aeb035d50cd9a93fe99991cf2c4))
+
 ## [0.2.7](https://github.com/mm503/tautulli-exporter/compare/v0.2.6...v0.2.7) (2026-07-13)
 
 
