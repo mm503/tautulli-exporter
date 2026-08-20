@@ -44,6 +44,27 @@ All configuration is done via environment variables:
 - `/healthz` - Kubernetes liveness probe (always returns 200 if running)
 - `/ready` - Kubernetes readiness probe (returns 503 if scraping fails)
 
+## Container Images
+
+Released images are published to both Docker Hub and GitHub Container Registry:
+
+| Registry | Image | Tags |
+|----------|-------|------|
+| Docker Hub | `mm404/tautulli-exporter` | `latest`, `<version>` (e.g. `1.2.3`) |
+| GHCR | `ghcr.io/mm503/tautulli-exporter` | `latest`, `<version>` (e.g. `1.2.3`) |
+
+Both are multi-arch (`linux/amd64`, `linux/arm64`) and built from the same release commit.
+
+### Development Images
+
+Every push to a non-`main` branch publishes an unstable image to GHCR only:
+
+| Registry | Image | Tags |
+|----------|-------|------|
+| GHCR | `ghcr.io/mm503/tautulli-exporter-dev` | `dev-<version>-<branch>-<sha>` |
+
+These are for testing branches before release and are not intended for production use.
+
 ## Installation
 
 ### Docker
@@ -54,6 +75,16 @@ docker run -d \
   -e TAUTULLI_API_KEY=your-api-key \
   -p 8000:8000 \
   mm404/tautulli-exporter
+```
+
+Or from GHCR:
+
+```bash
+docker run -d \
+  -e TAUTULLI_URL=http://your-tautulli:8181 \
+  -e TAUTULLI_API_KEY=your-api-key \
+  -p 8000:8000 \
+  ghcr.io/mm503/tautulli-exporter
 ```
 
 ### Kubernetes
@@ -77,6 +108,7 @@ spec:
     spec:
       containers:
       - name: tautulli-exporter
+        # or ghcr.io/mm503/tautulli-exporter:latest
         image: mm404/tautulli-exporter:latest
         ports:
         - containerPort: 8000
