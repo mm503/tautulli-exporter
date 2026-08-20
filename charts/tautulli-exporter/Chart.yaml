@@ -18,3 +18,11 @@ version: 0.2.1
 
 # This is the version of the exporter image deployed by default (image.tag overrides it).
 appVersion: "1.0.0"
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/images: |
+    - name: tautulli-exporter
+      image: ghcr.io/mm503/tautulli-exporter:1.0.0
+      platforms:
+        - linux/amd64
+        - linux/arm64
