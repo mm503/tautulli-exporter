@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tautulli-exporter — Helm Chart Repository</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 1.5rem;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      max-width: 720px;
+      width: 100%;
+      padding: 2.5rem 2.5rem 2rem;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #1f6feb22;
+      border: 1px solid #1f6feb55;
+      color: #58a6ff;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      font-size: 1.9rem;
+      font-weight: 700;
+      color: #f0f6fc;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: #8b949e;
+      font-size: 1rem;
+      margin-bottom: 2rem;
+      line-height: 1.5;
+    }
+
+    h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #8b949e;
+      margin-bottom: 0.6rem;
+    }
+
+    .code-block {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.875rem;
+      color: #e6edf3;
+      margin-bottom: 1.5rem;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .code-block .comment { color: #8b949e; }
+    .code-block .cmd { color: #79c0ff; }
+    .code-block .arg { color: #a5d6ff; }
+    .code-block .flag { color: #ffa657; }
+
+    .note {
+      color: #8b949e;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      margin: -1rem 0 1.5rem;
+    }
+
+    .note code { color: #e6edf3; font-size: 0.9em; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #21262d;
+      margin: 1.75rem 0;
+    }
+
+    .links {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: #58a6ff;
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.15s;
+    }
+
+    .links a:hover { color: #a5d6ff; text-decoration: underline; }
+
+    .links a svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+      flex-shrink: 0;
+    }
+
+    footer {
+      margin-top: 2rem;
+      color: #484f58;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Helm Chart Repository</div>
+    <h1>tautulli-exporter</h1>
+    <p class="subtitle">
+      A Prometheus exporter for Plex Media Server metrics, collected through the
+      Tautulli API. Exposes active stream counts, transcode and direct-play
+      breakdowns, and bandwidth — with health probes, structured logging, and
+      graceful degradation when Tautulli is unreachable.
+    </p>
+
+    <h2>Add the repository</h2>
+    <div class="code-block"><span class="cmd">helm</span> <span class="arg">repo add</span> tautulli-exporter <span class="arg">https://mm503.github.io/tautulli-exporter</span>
+<span class="cmd">helm</span> <span class="arg">repo update</span></div>
+
+    <h2>Install</h2>
+    <div class="code-block"><span class="cmd">helm</span> <span class="arg">install</span> tautulli-exporter tautulli-exporter/tautulli-exporter \
+  <span class="flag">--set</span> config.tautulliUrl=http://tautulli.default.svc.cluster.local:8181 \
+  <span class="flag">--set</span> config.apiKey=your-tautulli-api-key</div>
+
+    <h2>Install with an existing Secret</h2>
+    <div class="code-block"><span class="cmd">helm</span> <span class="arg">install</span> tautulli-exporter tautulli-exporter/tautulli-exporter \
+  <span class="flag">--set</span> config.tautulliUrl=http://tautulli.default.svc.cluster.local:8181 \
+  <span class="flag">--set</span> config.existingSecret.name=tautulli-credentials \
+  <span class="flag">--set</span> config.existingSecret.key=api-key</div>
+    <p class="note">
+      Preferred outside of local testing — it keeps the API key out of your release values.
+      Set <code>serviceMonitor.enabled=true</code> to have the Prometheus Operator pick up
+      the exporter automatically.
+    </p>
+
+    <h2>Upgrade</h2>
+    <div class="code-block"><span class="cmd">helm</span> <span class="arg">upgrade</span> tautulli-exporter tautulli-exporter/tautulli-exporter</div>
+
+    <hr class="divider" />
+
+    <h2>About this page</h2>
+    <p style="color:#8b949e; font-size:0.9rem; line-height:1.6; margin-bottom:1.5rem;">
+      This GitHub Pages site hosts the Helm chart index (<code style="color:#e6edf3; font-size:0.85em;">index.yaml</code>)
+      for the <strong style="color:#e6edf3;">tautulli-exporter</strong> project.
+      Charts are published automatically on each release via
+      <a href="https://github.com/helm/chart-releaser-action" style="color:#58a6ff;">chart-releaser</a>.
+    </p>
+
+    <div class="links">
+      <a href="https://github.com/mm503/tautulli-exporter">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <a href="https://github.com/mm503/tautulli-exporter/releases">
+        <svg viewBox="0 0 16 16"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215z"/></svg>
+        Releases
+      </a>
+      <a href="https://hub.docker.com/r/mm404/tautulli-exporter">
+        <svg viewBox="0 0 16 16"><path d="M14.83 4.89l.83-1a1 1 0 0 0-.2-1.4 1 1 0 0 0-1.4.2l-.5.6A6 6 0 0 0 9 2a6 6 0 0 0-6 6 6 6 0 0 0 6 6 6 6 0 0 0 6-6 6 6 0 0 0-.17-1.11zM9 12.5A4.5 4.5 0 1 1 9 3.5a4.5 4.5 0 0 1 0 9zM9 5a1 1 0 0 0-1 1v3a1 1 0 0 0 .29.71l2 2a1 1 0 0 0 1.42-1.42L10 8.59V6a1 1 0 0 0-1-1z"/></svg>
+        Docker Hub
+      </a>
+      <a href="/tautulli-exporter/index.yaml">
+        <svg viewBox="0 0 16 16"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25V1.75zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5H3.75zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011z"/></svg>
+        index.yaml
+      </a>
+    </div>
+  </div>
+
+  <footer>Served from the <code>gh-pages</code> branch &middot; tautulli-exporter</footer>
+</body>
+</html>
