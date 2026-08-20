@@ -11,6 +11,10 @@ config:
   existingSecret:
     name: ""
     key: api-key
+  # -- Port the exporter binds inside the container (METRICS_PORT). This is
+  # independent of service.port; the Service targets it by name. Keep it above
+  # 1024 -- the container runs as UID 1000 and cannot bind privileged ports.
+  metricsPort: 8000
   # -- Logging level: DEBUG, INFO, WARNING, ERROR. Empty uses the exporter default (INFO).
   logLevel: ""
   # -- Seconds between Tautulli API calls. Empty uses the exporter default (30).
@@ -18,12 +22,15 @@ config:
   # -- HTTP request timeout in seconds. Empty uses the exporter default (10).
   requestTimeout: ""
 
+# -- Soft memory limit for the Go runtime (GOMEMLIMIT). Keep it below
+# resources.limits.memory so the GC applies back-pressure on a heap spike
+# instead of the kernel OOM-killing the container. Empty leaves it unset.
+goMemLimit: 48MiB
+
 # -- Additional environment variables for the exporter container.
 extraEnv: []
-  # - name: GOMEMLIMIT
-  #   value: 24MiB
-
-replicaCount: 1
+  # - name: GODEBUG
+  #   value: madvdontneed=1
 
 image:
   # -- Image repository. The same image is published to Docker Hub as
@@ -37,35 +44,28 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-serviceAccount:
-  # -- Specifies whether a service account should be created.
-  create: true
-  # -- The exporter does not use the Kubernetes API, so credentials are not mounted.
-  automount: false
-  annotations: {}
-  # -- If not set and create is true, a name is generated using the fullname template.
-  name: ""
-
 podAnnotations: {}
 podLabels: {}
 
-podSecurityContext: {}
-
 # The image runs a static binary on scratch as UID 1000, so the strict
-# defaults below work out of the box.
+# defaults below work out of the box. seccompProfile is required by the
+# restricted Pod Security Standard; without it the pod fails admission in
+# namespaces enforcing that level.
 securityContext:
   runAsNonRoot: true
   runAsUser: 1000
   runAsGroup: 1000
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
+  seccompProfile:
+    type: RuntimeDefault
   capabilities:
     drop:
       - ALL
 
 service:
   type: ClusterIP
-  # -- Port for the metrics/health endpoints (also passed to the exporter as METRICS_PORT).
+  # -- Cluster-facing port for the metrics/health endpoints.
   port: 8000
 
 # -- Create a ServiceMonitor for the Prometheus Operator (kube-prometheus-stack).
@@ -78,16 +78,21 @@ serviceMonitor:
   # -- Extra labels, e.g. to match the operator's serviceMonitorSelector.
   labels: {}
 
-# Steady-state usage is ~15Mi working set and near-zero CPU; the limits leave
-# headroom for GC overhead and transcode-heavy session payloads.
+# Steady-state usage is ~15Mi working set and near-zero CPU. There is no CPU
+# limit: the exporter is idle between polls and throttling a latency-sensitive
+# scrape handler buys nothing. See goMemLimit above for the memory ceiling.
 resources:
   requests:
     cpu: 50m
     memory: 16Mi
   limits:
     cpu: 200m
-    memory: 32Mi
+    memory: 64Mi
 
+# /healthz is liveness, /ready is readiness. /ready reports only whether the
+# process can serve /metrics -- Tautulli reachability is exposed as the plex_up
+# metric rather than a probe failure, so an upstream outage never removes the
+# pod from its Service endpoints.
 livenessProbe:
   httpGet:
     path: /healthz
@@ -100,9 +105,6 @@ readinessProbe:
     port: http
   initialDelaySeconds: 5
   periodSeconds: 10
-
-volumes: []
-volumeMounts: []
 
 nodeSelector: {}
 

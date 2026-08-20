@@ -49,14 +49,3 @@ Selector labels
 app.kubernetes.io/name: {{ include "tautulli-exporter.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
-
-{{/*
-Create the name of the service account to use
-*/}}
-{{- define "tautulli-exporter.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "tautulli-exporter.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}
