@@ -57,6 +57,7 @@ var (
 	consecutiveFailures  int
 	lastSuccessfulScrape time.Time
 	circuitOpenedAt      time.Time
+	firstFailureAt       time.Time
 	metricsLock          sync.Mutex
 )
 
@@ -203,10 +204,21 @@ func recordFailure(format string, args ...any) {
 	metricsLock.Lock()
 	consecutiveFailures++
 	failureCount := consecutiveFailures
-	circuitOpenedAt = time.Now()
+	now := time.Now()
+	if failureCount == 1 {
+		firstFailureAt = now
+	}
+	circuitOpenedAt = now
 	metricsLock.Unlock()
 	msg := fmt.Sprintf(format, args...)
 	logError(fmt.Sprintf("%s (failure %d/%d)", msg, failureCount, maxConsecutiveFailures))
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
 }
 
 func getTautulliActivity() {
@@ -271,9 +283,24 @@ func getTautulliActivity() {
 
 	// Reset failure counter on success
 	metricsLock.Lock()
+	priorFailures := consecutiveFailures
+	var outage time.Duration
+	if !firstFailureAt.IsZero() {
+		outage = time.Since(firstFailureAt)
+	}
 	consecutiveFailures = 0
+	firstFailureAt = time.Time{}
 	lastSuccessfulScrape = time.Now()
 	metricsLock.Unlock()
+
+	if priorFailures > 0 {
+		recovery := fmt.Sprintf("Collection resumed after %d consecutive %s over %ds",
+			priorFailures, plural(priorFailures, "failure"), int(outage.Seconds()))
+		if priorFailures >= maxConsecutiveFailures {
+			recovery += "; circuit breaker closed"
+		}
+		logInfo(recovery)
+	}
 
 	// Aggregate counts from activity data (pre-calculated by Tautulli)
 	totalStreams := int(activityData.StreamCount)
