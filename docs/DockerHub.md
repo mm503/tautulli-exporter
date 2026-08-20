@@ -27,7 +27,10 @@ override above pulls it from Docker Hub instead.
 
 - `/metrics` - Prometheus metrics
 - `/healthz` - Liveness probe (always 200 if running)
-- `/ready` - Readiness probe (503 if scraping fails)
+- `/ready` - Readiness probe (200 whenever the process can serve `/metrics`)
+
+`/ready` does not fail when Tautulli is unreachable -- that would stop Prometheus
+scraping during an outage. Alert on `plex_up == 0` instead.
 
 ## Metrics
 
@@ -44,6 +47,9 @@ override above pulls it from Docker Hub instead.
 | `plex_bandwidth_total_kbps` | Gauge | Total Plex streaming bandwidth (kbps) |
 | `plex_bandwidth_lan_kbps` | Gauge | LAN streaming bandwidth (kbps) |
 | `plex_bandwidth_wan_kbps` | Gauge | WAN streaming bandwidth (kbps) |
+| `plex_up` | Gauge | 1 if the last Tautulli scrape succeeded, 0 otherwise |
+| `plex_last_successful_scrape_timestamp_seconds` | Gauge | Unix timestamp of the last successful Tautulli scrape |
+| `plex_scrape_failures_total` | Counter | Total number of failed Tautulli scrapes |
 
 ## Configuration
 
