@@ -5,7 +5,12 @@ metadata:
   labels:
     {{- include "tautulli-exporter.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  # A single replica: the exporter polls Tautulli on a timer, so additional
+  # replicas only duplicate API load and emit duplicate series. Recreate for
+  # the same reason -- a rolling update would briefly run two pollers.
+  replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "tautulli-exporter.selectorLabels" . | nindent 6 }}
@@ -28,12 +33,8 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "tautulli-exporter.serviceAccountName" . }}
-      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
-      {{- with .Values.podSecurityContext }}
-      securityContext:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+      # The exporter never calls the Kubernetes API, so no credentials are mounted.
+      automountServiceAccountToken: false
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -56,7 +57,11 @@ spec:
                   key: api-key
                   {{- end }}
             - name: METRICS_PORT
-              value: {{ .Values.service.port | quote }}
+              value: {{ .Values.config.metricsPort | quote }}
+            {{- with .Values.goMemLimit }}
+            - name: GOMEMLIMIT
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.config.logLevel }}
             - name: LOG_LEVEL
               value: {{ . | quote }}
@@ -74,7 +79,7 @@ spec:
             {{- end }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.port }}
+              containerPort: {{ .Values.config.metricsPort }}
               protocol: TCP
           {{- with .Values.livenessProbe }}
           livenessProbe:
@@ -88,14 +93,6 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
