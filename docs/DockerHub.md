@@ -14,6 +14,7 @@ Or on Kubernetes via Helm:
 
 ```bash
 helm repo add tautulli-exporter https://mm503.github.io/tautulli-exporter
+helm repo update
 helm install tautulli-exporter tautulli-exporter/tautulli-exporter \
   --set config.tautulliUrl=http://your-tautulli:8181 \
   --set config.apiKey=your-api-key \
@@ -21,7 +22,8 @@ helm install tautulli-exporter tautulli-exporter/tautulli-exporter \
 ```
 
 The chart defaults to the GHCR copy of this image; the `image.repository`
-override above pulls it from Docker Hub instead.
+override above pulls it from Docker Hub instead. Chart repository details:
+[mm503.github.io/tautulli-exporter](https://mm503.github.io/tautulli-exporter).
 
 ## Endpoints
 
