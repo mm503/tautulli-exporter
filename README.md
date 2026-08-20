@@ -24,6 +24,9 @@ A Prometheus exporter for Plex Media Server metrics via Tautulli API. Designed f
 | `plex_bandwidth_total_kbps` | Gauge | Total Plex streaming bandwidth (kbps) |
 | `plex_bandwidth_lan_kbps` | Gauge | LAN streaming bandwidth (kbps) |
 | `plex_bandwidth_wan_kbps` | Gauge | WAN streaming bandwidth (kbps) |
+| `plex_up` | Gauge | 1 if the last Tautulli scrape succeeded, 0 otherwise |
+| `plex_last_successful_scrape_timestamp_seconds` | Gauge | Unix timestamp of the last successful Tautulli scrape |
+| `plex_scrape_failures_total` | Counter | Total number of failed Tautulli scrapes |
 
 ## Configuration
 
@@ -42,7 +45,18 @@ All configuration is done via environment variables:
 
 - `/metrics` - Prometheus metrics
 - `/healthz` - Kubernetes liveness probe (always returns 200 if running)
-- `/ready` - Kubernetes readiness probe (returns 503 if scraping fails)
+- `/ready` - Kubernetes readiness probe (200 whenever the process can serve `/metrics`)
+
+`/ready` intentionally does **not** fail when Tautulli is unreachable. Gating
+readiness on an upstream removes the pod from its Service endpoints, which stops
+Prometheus from scraping the exporter exactly when the outage needs reporting.
+Alert on the `plex_up` metric instead:
+
+```yaml
+- alert: PlexExporterCannotReachTautulli
+  expr: plex_up == 0
+  for: 5m
+```
 
 ## Container Images
 
@@ -151,6 +165,16 @@ spec:
       - name: tautulli-exporter
         # or ghcr.io/mm503/tautulli-exporter:latest
         image: mm404/tautulli-exporter:latest
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop: ["ALL"]
         ports:
         - containerPort: 8000
           name: metrics
@@ -164,6 +188,10 @@ spec:
               key: api-key
         - name: LOG_LEVEL
           value: "INFO"
+        # Keep below limits.memory so the Go GC applies back-pressure on a
+        # heap spike instead of the container being OOM-killed.
+        - name: GOMEMLIMIT
+          value: "24MiB"
         livenessProbe:
           httpGet:
             path: /healthz
@@ -182,7 +210,6 @@ spec:
             cpu: "50m"
           limits:
             memory: "32Mi"
-            cpu: "200m"
 ---
 apiVersion: v1
 kind: Service

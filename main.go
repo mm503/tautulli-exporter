@@ -45,6 +45,13 @@ var (
 	bandwidthTotal            = promauto.NewGauge(prometheus.GaugeOpts{Name: "plex_bandwidth_total_kbps", Help: "Total Plex streaming bandwidth (kbps)"})
 	bandwidthLAN              = promauto.NewGauge(prometheus.GaugeOpts{Name: "plex_bandwidth_lan_kbps", Help: "LAN streaming bandwidth (kbps)"})
 	bandwidthWAN              = promauto.NewGauge(prometheus.GaugeOpts{Name: "plex_bandwidth_wan_kbps", Help: "WAN streaming bandwidth (kbps)"})
+
+	// Scrape health. These carry the "is Tautulli reachable" signal that used
+	// to live in the /ready status code. Reporting it as metrics keeps the
+	// exporter scrapeable during an outage, which a readiness gate would not.
+	up                   = promauto.NewGauge(prometheus.GaugeOpts{Name: "plex_up", Help: "1 if the last Tautulli scrape succeeded, 0 otherwise"})
+	lastSuccessTimestamp = promauto.NewGauge(prometheus.GaugeOpts{Name: "plex_last_successful_scrape_timestamp_seconds", Help: "Unix timestamp of the last successful Tautulli scrape"})
+	scrapeFailuresTotal  = promauto.NewCounter(prometheus.CounterOpts{Name: "plex_scrape_failures_total", Help: "Total number of failed Tautulli scrapes"})
 )
 
 // Track consecutive failures for circuit breaker pattern
@@ -210,6 +217,8 @@ func recordFailure(format string, args ...any) {
 	}
 	circuitOpenedAt = now
 	metricsLock.Unlock()
+	up.Set(0)
+	scrapeFailuresTotal.Inc()
 	msg := fmt.Sprintf(format, args...)
 	logError(fmt.Sprintf("%s (failure %d/%d)", msg, failureCount, maxConsecutiveFailures))
 }
@@ -290,8 +299,11 @@ func getTautulliActivity() {
 	}
 	consecutiveFailures = 0
 	firstFailureAt = time.Time{}
-	lastSuccessfulScrape = time.Now()
+	now := time.Now()
+	lastSuccessfulScrape = now
 	metricsLock.Unlock()
+	up.Set(1)
+	lastSuccessTimestamp.Set(float64(now.Unix()))
 
 	if priorFailures > 0 {
 		recovery := fmt.Sprintf("Collection resumed after %d consecutive %s over %ds",
@@ -354,26 +366,16 @@ func healthzHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func readyHandler(w http.ResponseWriter, _ *http.Request) {
-	// Readiness probe - check if we can scrape data
-	metricsLock.Lock()
-	lastScrape := lastSuccessfulScrape
-	failures := consecutiveFailures
-	metricsLock.Unlock()
-
-	timeSinceLastSuccess := time.Since(lastScrape)
-
-	// Consider ready if:
-	// 1. Never scraped yet (startup grace period)
-	// 2. Last successful scrape was within 2 intervals AND not in circuit breaker state
-	if lastScrape.IsZero() || (timeSinceLastSuccess < time.Duration(scrapeInterval*2)*time.Second && failures < maxConsecutiveFailures) {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("READY"))
-	} else {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprintf(w, "NOT READY: Last success %ds ago, failures: %d", int(timeSinceLastSuccess.Seconds()), failures)
-	}
+	// Readiness reports only whether this process can serve /metrics, which is
+	// true whenever the HTTP server is running. Tautulli reachability is
+	// deliberately NOT reflected here: gating readiness on an upstream removes
+	// the pod from its Service endpoints during an outage, making the exporter
+	// unscrapeable exactly when the failure needs reporting. That signal is
+	// exposed as the plex_up and plex_last_successful_scrape_timestamp_seconds
+	// metrics instead.
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("READY"))
 }
 
 func notFoundHandler(w http.ResponseWriter, r *http.Request) {

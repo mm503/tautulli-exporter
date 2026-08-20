@@ -488,35 +488,77 @@ func TestReadyReturns200WhenRecentlyScraped(t *testing.T) {
 	}
 }
 
-func TestReadyReturns503WhenScrapeTooOld(t *testing.T) {
+// Readiness must stay 200 while Tautulli is unreachable. A 503 here would
+// drop the pod from its Service endpoints and make the exporter unscrapeable
+// during the outage; plex_up carries that signal instead.
+func TestReadyReturns200WhenScrapeTooOld(t *testing.T) {
 	resetState()
 	lastSuccessfulScrape = time.Now().Add(-time.Duration(scrapeInterval*3) * time.Second)
 	rec := doRequest("/ready")
-	if rec.Code != 503 {
-		t.Errorf("status = %d, want 503", rec.Code)
+	if rec.Code != 200 {
+		t.Errorf("status = %d, want 200 (upstream health must not gate readiness)", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "NOT READY") {
-		t.Errorf("body = %q, want NOT READY", rec.Body.String())
+	if rec.Body.String() != "READY" {
+		t.Errorf("body = %q, want READY", rec.Body.String())
 	}
 }
 
-func TestReadyReturns503WhenCircuitBreakerActive(t *testing.T) {
+func TestReadyReturns200WhenCircuitBreakerActive(t *testing.T) {
 	resetState()
-	lastSuccessfulScrape = time.Now()
+	lastSuccessfulScrape = time.Now().Add(-time.Duration(scrapeInterval*3) * time.Second)
 	consecutiveFailures = maxConsecutiveFailures
 	rec := doRequest("/ready")
-	if rec.Code != 503 {
-		t.Errorf("status = %d, want 503", rec.Code)
+	if rec.Code != 200 {
+		t.Errorf("status = %d, want 200 (circuit breaker must not gate readiness)", rec.Code)
 	}
 }
 
-func TestReady503BodyContainsFailureCount(t *testing.T) {
+func TestRecordFailureSetsUpZeroAndCountsFailure(t *testing.T) {
 	resetState()
-	lastSuccessfulScrape = time.Now().Add(-time.Duration(scrapeInterval*3) * time.Second)
-	consecutiveFailures = 3
-	rec := doRequest("/ready")
-	if !strings.Contains(rec.Body.String(), "failures: 3") {
-		t.Errorf("body = %q, want to contain 'failures: 3'", rec.Body.String())
+	up.Set(1)
+	before := testutil.ToFloat64(scrapeFailuresTotal)
+
+	recordFailure("synthetic failure")
+
+	if got := testutil.ToFloat64(up); got != 0 {
+		t.Errorf("plex_up = %v, want 0 after a failed scrape", got)
+	}
+	if got := testutil.ToFloat64(scrapeFailuresTotal); got != before+1 {
+		t.Errorf("plex_scrape_failures_total = %v, want %v", got, before+1)
+	}
+}
+
+func TestSuccessfulScrapeSetsUpAndTimestamp(t *testing.T) {
+	resetState()
+	up.Set(0)
+	lastSuccessTimestamp.Set(0)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"response":{"result":"success","data":{"stream_count":"0","sessions":[]}}}`))
+	}))
+	defer srv.Close()
+	tautulliURL = srv.URL
+
+	getTautulliActivity()
+
+	if got := testutil.ToFloat64(up); got != 1 {
+		t.Errorf("plex_up = %v, want 1 after a successful scrape", got)
+	}
+	if got := testutil.ToFloat64(lastSuccessTimestamp); got <= 0 {
+		t.Errorf("plex_last_successful_scrape_timestamp_seconds = %v, want a positive unix time", got)
+	}
+}
+
+func TestScrapeHealthMetricsAreExposed(t *testing.T) {
+	resetState()
+	body := doRequest("/metrics").Body.String()
+	for _, name := range []string{
+		"plex_up",
+		"plex_last_successful_scrape_timestamp_seconds",
+		"plex_scrape_failures_total",
+	} {
+		if !strings.Contains(body, name) {
+			t.Errorf("metrics output missing %s", name)
+		}
 	}
 }
 
