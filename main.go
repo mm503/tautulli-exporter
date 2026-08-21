@@ -86,7 +86,7 @@ func logAt(level, msg string) {
 	}
 	quoted, _ := json.Marshal(msg)
 	fmt.Fprintf(logOut, "{\"timestamp\":\"%s\",\"level\":\"%s\",\"logger\":\"plex_exporter\",\"message\":%s}\n",
-		time.Now().Format("2006-01-02T15:04:05"), level, quoted)
+		time.Now().UTC().Format("2006-01-02T15:04:05"), level, quoted)
 }
 
 func logDebug(msg string)   { logAt("DEBUG", msg) }
@@ -111,7 +111,7 @@ func loadConfig() []string {
 }
 
 func intFromEnv(name string, def int, errs *[]string) int {
-	v := os.Getenv(name)
+	v := strings.TrimSpace(os.Getenv(name))
 	if v == "" {
 		return def
 	}
@@ -169,6 +169,23 @@ func validateConfig() []string {
 	}
 
 	return errs
+}
+
+// configWarnings reports settings that are individually valid but interact
+// badly. These are warnings rather than errors so an existing deployment is
+// never refused a start over them.
+func configWarnings() []string {
+	var warnings []string
+
+	// A scrape runs synchronously in the poll loop, so a timeout at or above the
+	// interval silently stretches the cycle past what was configured.
+	if requestTimeout >= scrapeInterval {
+		warnings = append(warnings, fmt.Sprintf(
+			"REQUEST_TIMEOUT %ds is not below SCRAPE_INTERVAL %ds; a slow or unreachable Tautulli will stretch the poll cycle beyond the configured interval",
+			requestTimeout, scrapeInterval))
+	}
+
+	return warnings
 }
 
 func isAlnumIgnoringUnderscores(s string) bool {
@@ -297,7 +314,7 @@ func getTautulliActivity(ctx context.Context) {
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
 	if err != nil {
-		recordFailure("Connection error while reading response: %v", err)
+		recordFailure("Connection error while reading response: %s", sanitizeRequestError(err))
 		return
 	}
 	if len(body) > maxResponseBodyBytes {
@@ -430,7 +447,7 @@ func newMux() http.Handler {
 	// Suppress access logs except in debug mode
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if logLevel == "DEBUG" {
-			logDebug(fmt.Sprintf("Health check: \"%s %s %s\"", r.Method, r.URL.Path, r.Proto))
+			logDebug(fmt.Sprintf("Request: \"%s %s %s\"", r.Method, r.URL.Path, r.Proto))
 		}
 		mux.ServeHTTP(w, r)
 	})
@@ -465,14 +482,26 @@ func run(sigCh chan os.Signal) int {
 		return 1
 	}
 
+	for _, w := range configWarnings() {
+		logWarning(w)
+	}
+
 	// Register signal handlers for graceful shutdown
 	// Note: SIGKILL and SIGSTOP cannot be caught
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 	logInfo("Signal handlers registered for graceful shutdown")
 
-	// Start HTTP server with health endpoints
-	server := &http.Server{Handler: newMux()}
+	// Start HTTP server with health endpoints. The timeouts are generous for
+	// probe and scrape traffic but bound how long an idle or slow client can
+	// hold a connection open.
+	server := &http.Server{
+		Handler:           newMux(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", metricsPort))
 	if err != nil {
 		logError(fmt.Sprintf("Failed to start metrics server: %v", err))
@@ -506,6 +535,16 @@ func run(sigCh chan os.Signal) int {
 	logInfo(fmt.Sprintf("Metrics server started on port %d", metricsPort))
 	logInfo("Health endpoints: /healthz (liveness), /ready (readiness), /metrics")
 
+	// Reports why the exporter is stopping and returns the process exit code.
+	logStop := func(event stopEvent) int {
+		if event.err != nil {
+			logError(fmt.Sprintf("Metrics server stopped unexpectedly: %v", event.err))
+			return 1
+		}
+		logInfo(fmt.Sprintf("Received %s, initiating graceful shutdown", signalName(event.signal)))
+		return 0
+	}
+
 	// Main loop
 	shuttingDown := false
 	exitCode := 0
@@ -513,12 +552,14 @@ func run(sigCh chan os.Signal) int {
 		getTautulliActivity(runCtx)
 
 		if runCtx.Err() != nil {
-			event := <-stopCh
-			if event.err != nil {
-				logError(fmt.Sprintf("Metrics server stopped unexpectedly: %v", event.err))
-				exitCode = 1
-			} else {
-				logInfo(fmt.Sprintf("Received %s, initiating graceful shutdown", signalName(event.signal)))
+			// reportStop publishes the event before cancelling runCtx, so the
+			// receive is already satisfied. The default arm keeps any future
+			// cancel path from deadlocking the loop here.
+			select {
+			case event := <-stopCh:
+				exitCode = logStop(event)
+			default:
+				logWarning("Run context canceled without a stop event; shutting down")
 			}
 			break
 		}
@@ -526,12 +567,7 @@ func run(sigCh chan os.Signal) int {
 		// Wait for SCRAPE_INTERVAL or until shutdown is requested
 		select {
 		case event := <-stopCh:
-			if event.err != nil {
-				logError(fmt.Sprintf("Metrics server stopped unexpectedly: %v", event.err))
-				exitCode = 1
-			} else {
-				logInfo(fmt.Sprintf("Received %s, initiating graceful shutdown", signalName(event.signal)))
-			}
+			exitCode = logStop(event)
 			shuttingDown = true
 		case <-time.After(time.Duration(scrapeInterval) * time.Second):
 		}

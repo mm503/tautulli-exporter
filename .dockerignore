@@ -1,0 +1,8 @@
+# The build needs the Go module files and sources and nothing else. An
+# allowlist keeps the context at a few KB regardless of what else is sitting in
+# the working tree (.venv alone was 17MB, and every byte is uploaded to the
+# builder and participates in cache invalidation).
+*
+!go.mod
+!go.sum
+!*.go

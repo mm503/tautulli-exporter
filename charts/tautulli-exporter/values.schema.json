@@ -45,15 +45,50 @@
       "required": ["tautulliUrl", "apiKey", "metricsPort"],
       "additionalProperties": false
     },
-    "goMemLimit": { "type": "string" },
-    "podAnnotations": {
+    "goMemLimit": { "type": ["string", "null"] },
+    "extraEnv": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "value": { "type": "string" },
+          "valueFrom": { "type": "object" }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    },
+    "image": {
       "type": "object",
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "tag": { "type": "string" }
+      },
+      "required": ["repository", "pullPolicy"],
+      "additionalProperties": false
+    },
+    "imagePullSecrets": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": { "name": { "type": "string", "minLength": 1 } },
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "podAnnotations": {
+      "type": ["object", "null"],
       "additionalProperties": { "type": "string" }
     },
     "podLabels": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": { "type": "string" }
     },
+    "securityContext": { "type": ["object", "null"] },
     "service": {
       "type": "object",
       "properties": {
@@ -69,19 +104,30 @@
         "enabled": { "type": "boolean" },
         "interval": {
           "type": "string",
-          "pattern": "^([0-9]+(ms|[ywdhms]))+$"
+          "minLength": 2,
+          "pattern": "^([0-9]+y)?([0-9]+w)?([0-9]+d)?([0-9]+h)?([0-9]+m)?([0-9]+s)?([0-9]+ms)?$"
         },
         "scrapeTimeout": {
           "type": "string",
-          "pattern": "^([0-9]+(ms|[ywdhms]))+$"
+          "minLength": 2,
+          "pattern": "^([0-9]+y)?([0-9]+w)?([0-9]+d)?([0-9]+h)?([0-9]+m)?([0-9]+s)?([0-9]+ms)?$"
         },
         "labels": {
-          "type": "object",
+          "type": ["object", "null"],
           "additionalProperties": { "type": "string" }
         }
       },
       "required": ["enabled", "interval", "scrapeTimeout", "labels"],
       "additionalProperties": false
-    }
-  }
+    },
+    "resources": { "type": ["object", "null"] },
+    "livenessProbe": { "type": ["object", "null"] },
+    "readinessProbe": { "type": ["object", "null"] },
+    "nodeSelector": { "type": ["object", "null"] },
+    "tolerations": { "type": ["array", "null"] },
+    "affinity": { "type": ["object", "null"] },
+    "global": { "type": ["object", "null"] }
+  },
+  "required": ["config", "image", "service", "serviceMonitor"],
+  "additionalProperties": false
 }

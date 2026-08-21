@@ -1,6 +1,9 @@
 {{- $existingSecret := .Values.config.existingSecret | default dict -}}
 {{- $existingSecretName := get $existingSecret "name" | default "" -}}
 {{- $existingSecretKey := get $existingSecret "key" | default "api-key" -}}
+{{- if and $existingSecretName .Values.config.apiKey -}}
+{{- fail "config.apiKey and config.existingSecret.name are mutually exclusive: existingSecret wins, so the apiKey value would be silently ignored. Clear whichever one you no longer want." -}}
+{{- end -}}
 {{- $podAnnotations := deepCopy (.Values.podAnnotations | default dict) -}}
 {{- if not $existingSecretName -}}
 {{- $_ := set $podAnnotations "checksum/secret" (include (print $.Template.BasePath "/secret.yaml") . | sha256sum) -}}

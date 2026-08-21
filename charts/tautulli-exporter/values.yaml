@@ -8,20 +8,24 @@ config:
   # Prefer existingSecret for anything beyond local testing.
   apiKey: ""
   # -- Read the API key from a pre-existing Secret instead of apiKey above.
-  # Environment variables do not update in a running pod; restart the
-  # Deployment after rotating a key in an existing Secret.
+  # Mutually exclusive with apiKey -- setting both fails the render rather than
+  # silently ignoring apiKey. Environment variables do not update in a running
+  # pod; restart the Deployment after rotating a key in an existing Secret.
   existingSecret:
     name: ""
     key: api-key
   # -- Port the exporter binds inside the container (METRICS_PORT). This is
-  # independent of service.port; the Service targets it by name. Keep it above
-  # 1024 or above -- the container runs as UID 1000 and cannot bind privileged ports.
+  # independent of service.port; the Service targets it by name. Keep it at 1024
+  # or above -- the container runs as UID 1000 and cannot bind privileged ports.
   metricsPort: 8000
   # -- Logging level: DEBUG, INFO, WARNING, ERROR. Empty uses the exporter default (INFO).
   logLevel: ""
   # -- Seconds between Tautulli API calls (minimum 5). Empty uses the exporter default (30).
   scrapeInterval: ""
   # -- HTTP request timeout in seconds (minimum 1). Empty uses the exporter default (10).
+  # Keep it below scrapeInterval: a scrape runs synchronously in the poll loop,
+  # so a timeout at or above the interval stretches the cycle past it. The
+  # exporter logs a WARNING at startup if this holds.
   requestTimeout: ""
 
 # -- Soft memory limit for the Go runtime (GOMEMLIMIT). Keep it below
@@ -74,7 +78,8 @@ service:
 # Without it, scrape the service directly on /metrics.
 serviceMonitor:
   enabled: false
-  # -- Prometheus scrape interval; align with config.scrapeInterval.
+  # -- Prometheus scrape interval; align with config.scrapeInterval. Units must
+  # each appear at most once, largest first (e.g. 1m30s), as Prometheus requires.
   interval: 30s
   # -- Must not exceed interval.
   scrapeTimeout: 10s

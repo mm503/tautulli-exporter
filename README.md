@@ -38,8 +38,13 @@ All configuration is done via environment variables:
 | `TAUTULLI_API_KEY` | Yes | - | Tautulli API key from Settings → Web Interface |
 | `METRICS_PORT` | No | `8000` | Port for metrics/health endpoints |
 | `SCRAPE_INTERVAL` | No | `30` | Seconds between Tautulli API calls; minimum `5` |
-| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds; minimum `1` |
+| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds; minimum `1`. Keep below `SCRAPE_INTERVAL` -- see below |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+
+A scrape runs synchronously in the poll loop, so a `REQUEST_TIMEOUT` at or above
+`SCRAPE_INTERVAL` stretches the cycle past the interval you configured whenever
+Tautulli is slow or unreachable. Both settings are still accepted -- the exporter
+logs a `WARNING` at startup rather than refusing to start.
 
 ## Endpoints
 
@@ -134,11 +139,11 @@ Notable values (see [charts/tautulli-exporter/values.yaml](charts/tautulli-expor
 |-------|---------|-------------|
 | `config.tautulliUrl` | - | Tautulli server URL (required) |
 | `config.apiKey` | - | API key, stored in a chart-managed Secret |
-| `config.existingSecret.name` | - | Use an existing Secret for the API key instead |
+| `config.existingSecret.name` | - | Use an existing Secret for the API key instead; mutually exclusive with `config.apiKey` |
 | `config.existingSecret.key` | `api-key` | Key within that Secret holding the API key |
 | `config.logLevel` | `INFO` | Exporter log level |
 | `config.scrapeInterval` | `30` | Seconds between Tautulli API calls |
-| `config.requestTimeout` | `10` | Tautulli HTTP timeout in seconds |
+| `config.requestTimeout` | `10` | Tautulli HTTP timeout in seconds; keep below `config.scrapeInterval` |
 | `config.metricsPort` | `8000` | Container port; chart minimum is `1024` for its non-root user |
 | `serviceMonitor.enabled` | `false` | Create a ServiceMonitor for the Prometheus Operator |
 | `serviceMonitor.scrapeTimeout` | `10s` | Prometheus timeout; must not exceed `serviceMonitor.interval` |
@@ -267,17 +272,28 @@ scrape_configs:
 
 ## Grafana Dashboard
 
+Two things to know before wiring up panels:
+
+- **Failed scrapes freeze the gauges.** On failure only `plex_up` and
+  `plex_scrape_failures_total` move; the stream and bandwidth gauges keep their
+  last successful values indefinitely, so a stalled panel looks live. Guard
+  panels with `and on() plex_up == 1` to make the gap explicit.
+- **A fresh pod serves zeros.** `/metrics` is served as soon as the listener
+  binds, which is before the first poll completes, so there is a brief window
+  where every gauge reads `0` and is indistinguishable from "no active streams".
+  `plex_last_successful_scrape_timestamp_seconds == 0` identifies it.
+
 Example queries for Grafana:
 
 **Active Streams Panel:**
 ```promql
-plex_active_streams_total
+plex_active_streams_total and on() plex_up == 1
 ```
 
 **Stream Types Pie Chart:**
 ```promql
-plex_active_streams_direct
-plex_active_streams_transcode
+plex_active_streams_direct and on() plex_up == 1
+plex_active_streams_transcode and on() plex_up == 1
 ```
 
 **Direct Play vs Direct Stream:**
@@ -341,6 +357,10 @@ This line is emitted at `INFO`, while the failures themselves are at `ERROR`. Ru
 with `LOG_LEVEL=INFO` (the default) or `DEBUG` to see it — at `WARNING` or `ERROR`
 the failures are logged but the recovery is filtered out, making a resolved outage
 look ongoing.
+
+Log timestamps are UTC. The image is built `FROM scratch` and carries no tzdata,
+so emitting local time would have meant one thing in a container and another on a
+developer machine.
 
 ### Debug logging
 Set `LOG_LEVEL=DEBUG` to see detailed information including:
