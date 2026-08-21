@@ -29,6 +29,10 @@ The chart defaults to the GHCR copy of this image; the `image.repository`
 override above pulls it from Docker Hub instead. Chart repository details:
 [mm503.github.io/tautulli-exporter](https://mm503.github.io/tautulli-exporter).
 
+When using `config.existingSecret`, restart the Deployment after rotating the
+API key because Kubernetes does not update environment variables in a running
+container.
+
 ## Endpoints
 
 - `/metrics` - Prometheus metrics
@@ -55,17 +59,17 @@ scraping during an outage. Alert on `plex_up == 0` instead.
 | `plex_bandwidth_wan_kbps` | Gauge | WAN streaming bandwidth (kbps) |
 | `plex_up` | Gauge | 1 if the last Tautulli scrape succeeded, 0 otherwise |
 | `plex_last_successful_scrape_timestamp_seconds` | Gauge | Unix timestamp of the last successful Tautulli scrape |
-| `plex_scrape_failures_total` | Counter | Total number of failed Tautulli scrapes |
+| `plex_scrape_failures_total` | Counter | Failed Tautulli HTTP scrape attempts; circuit-breaker skips are not counted |
 
 ## Configuration
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TAUTULLI_URL` | Yes | - | Tautulli server URL (e.g., `http://192.168.1.100:8181`) |
+| `TAUTULLI_URL` | Yes | - | Tautulli base URL without credentials, a query, or a fragment (e.g., `http://192.168.1.100:8181`) |
 | `TAUTULLI_API_KEY` | Yes | - | Tautulli API key from Settings → Web Interface |
 | `METRICS_PORT` | No | `8000` | Port for metrics/health endpoints |
-| `SCRAPE_INTERVAL` | No | `30` | Seconds between Tautulli API calls |
-| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds |
+| `SCRAPE_INTERVAL` | No | `30` | Seconds between Tautulli API calls; minimum `5` |
+| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds; minimum `1` |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 
 ## Prometheus configuration

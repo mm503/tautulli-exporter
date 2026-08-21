@@ -145,6 +145,7 @@ jobs:
           VERSION="${{ needs.release-please.outputs.tag_name }}"
           VERSION="${VERSION#v}"
           sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/tautulli-exporter/Chart.yaml
+          sed -i "s#image: ghcr.io/mm503/tautulli-exporter:.*#image: ghcr.io/mm503/tautulli-exporter:${VERSION}#" charts/tautulli-exporter/Chart.yaml
 
       - name: Bump chart version
         run: |

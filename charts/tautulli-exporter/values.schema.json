@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "config": {
+      "type": "object",
+      "properties": {
+        "tautulliUrl": { "type": "string" },
+        "apiKey": { "type": "string" },
+        "existingSecret": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "metricsPort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "logLevel": {
+          "type": "string",
+          "enum": ["", "DEBUG", "INFO", "WARNING", "ERROR"]
+        },
+        "scrapeInterval": {
+          "oneOf": [
+            { "type": "string", "maxLength": 0 },
+            { "type": "integer", "minimum": 5 }
+          ]
+        },
+        "requestTimeout": {
+          "oneOf": [
+            { "type": "string", "maxLength": 0 },
+            { "type": "integer", "minimum": 1 }
+          ]
+        }
+      },
+      "required": ["tautulliUrl", "apiKey", "metricsPort"],
+      "additionalProperties": false
+    },
+    "goMemLimit": { "type": "string" },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "podLabels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      },
+      "required": ["type", "port"],
+      "additionalProperties": false
+    },
+    "serviceMonitor": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "interval": {
+          "type": "string",
+          "pattern": "^([0-9]+(ms|[ywdhms]))+$"
+        },
+        "scrapeTimeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(ms|[ywdhms]))+$"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["enabled", "interval", "scrapeTimeout", "labels"],
+      "additionalProperties": false
+    }
+  }
+}
