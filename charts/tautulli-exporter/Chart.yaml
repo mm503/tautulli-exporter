@@ -18,15 +18,15 @@ keywords:
 
 # This is the chart version. This version number should be incremented each time you make changes
 # to the chart and its templates. Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.2.1
+version: 0.2.2
 
 # This is the version of the exporter image deployed by default (image.tag overrides it).
-appVersion: "1.0.0"
+appVersion: "1.0.1"
 annotations:
   artifacthub.io/license: MIT
   artifacthub.io/images: |
     - name: tautulli-exporter
-      image: ghcr.io/mm503/tautulli-exporter:1.0.0
+      image: ghcr.io/mm503/tautulli-exporter:1.0.1
       platforms:
         - linux/amd64
         - linux/arm64
