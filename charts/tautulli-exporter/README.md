@@ -63,14 +63,57 @@ scraping during an outage. Alert on `plex_up == 0` instead.
 
 ## Configuration
 
+The exporter is configured entirely through environment variables, so it runs the
+same under Docker, plain Kubernetes manifests, or the chart. The chart maps its
+values onto these variables for you.
+
+### Environment variables
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `TAUTULLI_URL` | Yes | - | Tautulli base URL without credentials, a query, or a fragment (e.g., `http://192.168.1.100:8181`) |
 | `TAUTULLI_API_KEY` | Yes | - | Tautulli API key from Settings → Web Interface |
 | `METRICS_PORT` | No | `8000` | Port for metrics/health endpoints |
 | `SCRAPE_INTERVAL` | No | `30` | Seconds between Tautulli API calls; minimum `5` |
-| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds; minimum `1` |
+| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds; minimum `1`. Keep below `SCRAPE_INTERVAL` |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+
+A scrape runs synchronously in the poll loop, so a `REQUEST_TIMEOUT` at or above
+`SCRAPE_INTERVAL` stretches the cycle past the interval you configured whenever
+Tautulli is slow or unreachable. The exporter logs a `WARNING` at startup rather
+than refusing to start.
+
+### Chart values
+
+Only when installing via Helm. See
+[values.yaml](https://github.com/mm503/tautulli-exporter/blob/main/charts/tautulli-exporter/values.yaml)
+for the full list.
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `config.tautulliUrl` | - | **Required.** Tautulli base URL, without credentials, a query, or a fragment (e.g. `http://tautulli.media.svc.cluster.local:8181`) |
+| `config.apiKey` | - | Tautulli API key (Settings → Web Interface), stored in a chart-managed Secret |
+| `config.existingSecret.name` | - | Read the API key from an existing Secret instead; mutually exclusive with `config.apiKey` |
+| `config.existingSecret.key` | `api-key` | Key within that Secret holding the API key |
+| `config.metricsPort` | `8000` | Container port for metrics/health endpoints; minimum `1024` for the non-root user |
+| `config.scrapeInterval` | `30` | Seconds between Tautulli API calls; minimum `5` |
+| `config.requestTimeout` | `10` | Tautulli HTTP timeout in seconds; keep below `config.scrapeInterval` |
+| `config.logLevel` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+| `goMemLimit` | `48MiB` | `GOMEMLIMIT` for the Go runtime; keep below `resources.limits.memory` |
+| `extraEnv` | `[]` | Additional environment variables for the container |
+| `image.repository` | `ghcr.io/mm503/tautulli-exporter` | Set to `mm404/tautulli-exporter` to pull from Docker Hub |
+| `image.tag` | chart `appVersion` | Image tag override |
+| `service.port` | `8000` | Cluster-facing Service port; targets `config.metricsPort` by name |
+| `serviceMonitor.enabled` | `false` | Create a ServiceMonitor for the Prometheus Operator |
+| `serviceMonitor.interval` | `30s` | Prometheus scrape interval; align with `config.scrapeInterval` |
+| `serviceMonitor.scrapeTimeout` | `10s` | Must not exceed `serviceMonitor.interval` |
+| `serviceMonitor.labels` | `{}` | Extra labels, e.g. to match the operator's `serviceMonitorSelector` |
+| `resources` | 50m / 16Mi, limit 64Mi | Container resource requests and limits |
+
+One caveat on the gauges above: on a failed scrape only `plex_up` and
+`plex_scrape_failures_total` move -- the stream and bandwidth gauges hold their
+last successful values. Guard dashboard queries with `and on() plex_up == 1` so
+a stalled reading is not mistaken for a live one.
 
 ## Prometheus configuration
 

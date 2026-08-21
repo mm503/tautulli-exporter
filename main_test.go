@@ -137,6 +137,34 @@ func TestValidateConfigRejectsInvalidTimeoutAndLogLevel(t *testing.T) {
 	}
 }
 
+func TestConfigWarnsWhenTimeoutNotBelowInterval(t *testing.T) {
+	cases := []struct {
+		name             string
+		interval, timout int
+		wantWarning      bool
+	}{
+		{"timeout below interval", 30, 10, false},
+		{"timeout equals interval", 10, 10, true},
+		{"timeout above interval", 5, 10, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetState()
+			scrapeInterval = tc.interval
+			requestTimeout = tc.timout
+
+			if errs := validateConfig(); len(errs) > 0 {
+				t.Fatalf("expected a valid config, got errors: %v", errs)
+			}
+			warnings := configWarnings()
+			if got := len(warnings) > 0; got != tc.wantWarning {
+				t.Errorf("configWarnings() = %v, want warning = %v", warnings, tc.wantWarning)
+			}
+		})
+	}
+}
+
 func TestValidateConfigMultipleErrors(t *testing.T) {
 	resetState()
 	tautulliURL = ""
@@ -667,13 +695,13 @@ func TestAccessLogOnlyInDebugMode(t *testing.T) {
 
 	logLevel = "INFO"
 	doRequest("/healthz")
-	if strings.Contains(buf.String(), "Health check") {
+	if strings.Contains(buf.String(), "Request:") {
 		t.Error("access log emitted at INFO level")
 	}
 
 	logLevel = "DEBUG"
 	doRequest("/healthz")
-	if !strings.Contains(buf.String(), "Health check") {
+	if !strings.Contains(buf.String(), "Request:") {
 		t.Error("access log missing at DEBUG level")
 	}
 }
@@ -709,6 +737,22 @@ func TestLoadConfigReadsAndNormalizesEnv(t *testing.T) {
 	}
 	if httpClient.Timeout != 5*time.Second {
 		t.Errorf("client timeout = %v, want 5s", httpClient.Timeout)
+	}
+}
+
+func TestLoadConfigTrimsNumericEnv(t *testing.T) {
+	resetState()
+	t.Setenv("TAUTULLI_URL", validURL)
+	t.Setenv("TAUTULLI_API_KEY", validKey)
+	t.Setenv("METRICS_PORT", "  9100  ")
+	t.Setenv("SCRAPE_INTERVAL", "\t15\n")
+	t.Setenv("REQUEST_TIMEOUT", " 5 ")
+
+	if errs := loadConfig(); len(errs) > 0 {
+		t.Fatalf("loadConfig() errors = %v", errs)
+	}
+	if metricsPort != 9100 || scrapeInterval != 15 || requestTimeout != 5 {
+		t.Errorf("got port=%d interval=%d timeout=%d, want 9100/15/5", metricsPort, scrapeInterval, requestTimeout)
 	}
 }
 

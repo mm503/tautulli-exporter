@@ -53,11 +53,16 @@ app.kubernetes.io/instance: {{ .Release.Name | quote }}
 {{/*
 Convert a Prometheus duration composed of y, w, d, h, m, s, and ms units to
 milliseconds so related ServiceMonitor durations can be compared at render time.
+
+The pattern mirrors Prometheus' own: each unit may appear at most once and units
+must run largest to smallest. A looser pattern accepts strings like "30s30s" or
+"1s1h" that render fine here but are rejected by the Prometheus Operator, which
+turns a typo into a silently broken scrape target instead of a failed install.
 */}}
 {{- define "tautulli-exporter.durationMillis" -}}
 {{- $duration := toString . -}}
-{{- if not (regexMatch "^([0-9]+(ms|[ywdhms]))+$" $duration) -}}
-{{- fail (printf "invalid Prometheus duration %q" $duration) -}}
+{{- if not (regexMatch "^([0-9]+y)?([0-9]+w)?([0-9]+d)?([0-9]+h)?([0-9]+m)?([0-9]+s)?([0-9]+ms)?$" $duration) -}}
+{{- fail (printf "invalid Prometheus duration %q (units must each appear at most once, largest first)" $duration) -}}
 {{- end -}}
 {{- $total := 0 -}}
 {{- range $part := regexFindAll "[0-9]+(ms|[ywdhms])" $duration -1 -}}
