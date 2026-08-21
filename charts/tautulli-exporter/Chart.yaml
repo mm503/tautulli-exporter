@@ -3,8 +3,12 @@ name: tautulli-exporter
 description: Prometheus exporter for Plex Media Server metrics via the Tautulli API
 type: application
 home: https://github.com/mm503/tautulli-exporter
+icon: https://raw.githubusercontent.com/Tautulli/Tautulli/master/data/interfaces/default/images/logo-circle.png
 sources:
   - https://github.com/mm503/tautulli-exporter
+maintainers:
+  - name: mm503
+    url: https://github.com/mm503
 keywords:
   - prometheus
   - exporter

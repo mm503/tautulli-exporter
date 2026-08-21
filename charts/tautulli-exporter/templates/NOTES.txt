@@ -1,3 +1,4 @@
+{{- $existingSecret := .Values.config.existingSecret | default dict -}}
 tautulli-exporter is deployed.
 
 The exporter serves on port {{ .Values.service.port }} inside the cluster:
@@ -27,3 +28,11 @@ Verify it is up:
 
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "tautulli-exporter.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
   curl http://localhost:{{ .Values.service.port }}/ready
+{{- if (get $existingSecret "name") }}
+
+The API key is read from the existing Secret {{ get $existingSecret "name" | quote }}.
+Restart this Deployment after rotating that Secret because environment variables
+are only read when the container starts:
+
+  kubectl -n {{ .Release.Namespace }} rollout restart deployment/{{ include "tautulli-exporter.fullname" . }}
+{{- end }}

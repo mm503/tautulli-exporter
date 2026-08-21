@@ -26,7 +26,7 @@ A Prometheus exporter for Plex Media Server metrics via Tautulli API. Designed f
 | `plex_bandwidth_wan_kbps` | Gauge | WAN streaming bandwidth (kbps) |
 | `plex_up` | Gauge | 1 if the last Tautulli scrape succeeded, 0 otherwise |
 | `plex_last_successful_scrape_timestamp_seconds` | Gauge | Unix timestamp of the last successful Tautulli scrape |
-| `plex_scrape_failures_total` | Counter | Total number of failed Tautulli scrapes |
+| `plex_scrape_failures_total` | Counter | Failed Tautulli HTTP scrape attempts; circuit-breaker skips are not counted |
 
 ## Configuration
 
@@ -34,11 +34,11 @@ All configuration is done via environment variables:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TAUTULLI_URL` | Yes | - | Tautulli server URL (e.g., `http://192.168.1.100:8181`) |
+| `TAUTULLI_URL` | Yes | - | Tautulli base URL without credentials, a query, or a fragment (e.g., `http://192.168.1.100:8181`) |
 | `TAUTULLI_API_KEY` | Yes | - | Tautulli API key from Settings → Web Interface |
 | `METRICS_PORT` | No | `8000` | Port for metrics/health endpoints |
-| `SCRAPE_INTERVAL` | No | `30` | Seconds between Tautulli API calls |
-| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds |
+| `SCRAPE_INTERVAL` | No | `30` | Seconds between Tautulli API calls; minimum `5` |
+| `REQUEST_TIMEOUT` | No | `10` | HTTP request timeout in seconds; minimum `1` |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 
 ## Endpoints
@@ -124,6 +124,10 @@ helm install tautulli-exporter tautulli-exporter/tautulli-exporter \
   --set config.existingSecret.key=api-key
 ```
 
+Kubernetes does not refresh environment variables in running containers. After
+rotating the API key in a pre-existing Secret, restart the Deployment with
+`kubectl rollout restart deployment/<deployment-name>`.
+
 Notable values (see [charts/tautulli-exporter/values.yaml](charts/tautulli-exporter/values.yaml) for all options):
 
 | Value | Default | Description |
@@ -134,8 +138,10 @@ Notable values (see [charts/tautulli-exporter/values.yaml](charts/tautulli-expor
 | `config.existingSecret.key` | `api-key` | Key within that Secret holding the API key |
 | `config.logLevel` | `INFO` | Exporter log level |
 | `config.scrapeInterval` | `30` | Seconds between Tautulli API calls |
-| `config.metricsPort` | `8000` | Port the exporter binds inside the container |
+| `config.requestTimeout` | `10` | Tautulli HTTP timeout in seconds |
+| `config.metricsPort` | `8000` | Container port; chart minimum is `1024` for its non-root user |
 | `serviceMonitor.enabled` | `false` | Create a ServiceMonitor for the Prometheus Operator |
+| `serviceMonitor.scrapeTimeout` | `10s` | Prometheus timeout; must not exceed `serviceMonitor.interval` |
 | `service.port` | `8000` | Cluster-facing Service port; targets `config.metricsPort` by name |
 | `image.repository` | `ghcr.io/mm503/tautulli-exporter` | Image repository; set to `mm404/tautulli-exporter` to pull from Docker Hub |
 | `image.tag` | chart `appVersion` | Image tag override |
@@ -307,12 +313,15 @@ plex_bandwidth_wan_kbps
 - Verify network connectivity between exporter and Tautulli
 
 ### Readiness probe failing
-- Check logs for connection errors
-- Verify Tautulli is running and accessible
-- Ensure API key has proper permissions
+- Verify the exporter process started successfully and is listening on `config.metricsPort`
+- Ensure custom probe overrides still target the named `http` container port
+- Check that NetworkPolicy allows kubelet probe traffic to the pod
+
+Tautulli reachability and API-key validity do not affect `/ready`; use
+`plex_up` and exporter logs to diagnose those failures.
 
 ### Recovering from an outage
-Failed scrapes are logged at `ERROR` with a `(failure N/5)` counter. When a scrape
+Failed HTTP scrape attempts are logged at `ERROR` with a `(failure N/5)` counter. When a scrape
 succeeds again, the exporter logs a single `INFO` line so recovery is explicit:
 
 ```json
@@ -324,6 +333,10 @@ default 30s `SCRAPE_INTERVAL` two consecutive failures cover roughly 60s. If the
 circuit breaker had opened (5 consecutive failures), the same line ends with
 `; circuit breaker closed`.
 
+While the circuit is open, skipped HTTP attempts are logged at `WARNING` and do
+not increment `plex_scrape_failures_total`. The persistent outage signal is
+`plex_up == 0`.
+
 This line is emitted at `INFO`, while the failures themselves are at `ERROR`. Run
 with `LOG_LEVEL=INFO` (the default) or `DEBUG` to see it — at `WARNING` or `ERROR`
 the failures are logged but the recovery is filtered out, making a resolved outage
@@ -331,7 +344,7 @@ look ongoing.
 
 ### Debug logging
 Set `LOG_LEVEL=DEBUG` to see detailed information including:
-- API request URL
+- API endpoint without credentials
 - Health check requests
 - Metrics update confirmation
 

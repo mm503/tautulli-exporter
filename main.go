@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -51,21 +51,21 @@ var (
 	// exporter scrapeable during an outage, which a readiness gate would not.
 	up                   = promauto.NewGauge(prometheus.GaugeOpts{Name: "plex_up", Help: "1 if the last Tautulli scrape succeeded, 0 otherwise"})
 	lastSuccessTimestamp = promauto.NewGauge(prometheus.GaugeOpts{Name: "plex_last_successful_scrape_timestamp_seconds", Help: "Unix timestamp of the last successful Tautulli scrape"})
-	scrapeFailuresTotal  = promauto.NewCounter(prometheus.CounterOpts{Name: "plex_scrape_failures_total", Help: "Total number of failed Tautulli scrapes"})
+	scrapeFailuresTotal  = promauto.NewCounter(prometheus.CounterOpts{Name: "plex_scrape_failures_total", Help: "Total number of failed Tautulli HTTP scrape attempts; circuit-breaker skips are not counted"})
 )
 
 // Track consecutive failures for circuit breaker pattern
 const (
 	maxConsecutiveFailures      = 5
 	circuitBreakerResetInterval = 60 * time.Second // before allowing a probe attempt
+	maxResponseBodyBytes        = 8 << 20
+	serverShutdownTimeout       = 5 * time.Second
 )
 
 var (
-	consecutiveFailures  int
-	lastSuccessfulScrape time.Time
-	circuitOpenedAt      time.Time
-	firstFailureAt       time.Time
-	metricsLock          sync.Mutex
+	consecutiveFailures int
+	circuitOpenedAt     time.Time
+	firstFailureAt      time.Time
 )
 
 var httpClient = &http.Client{}
@@ -89,31 +89,36 @@ func logAt(level, msg string) {
 		time.Now().Format("2006-01-02T15:04:05"), level, quoted)
 }
 
-func logDebug(msg string) { logAt("DEBUG", msg) }
-func logInfo(msg string)  { logAt("INFO", msg) }
-func logError(msg string) { logAt("ERROR", msg) }
+func logDebug(msg string)   { logAt("DEBUG", msg) }
+func logInfo(msg string)    { logAt("INFO", msg) }
+func logWarning(msg string) { logAt("WARNING", msg) }
+func logError(msg string)   { logAt("ERROR", msg) }
 
-func loadConfig() {
+func loadConfig() []string {
+	var errs []string
+
 	if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
-		logLevel = strings.ToUpper(v)
+		logLevel = strings.ToUpper(strings.TrimSpace(v))
 	}
 	tautulliURL = strings.TrimRight(strings.TrimSpace(os.Getenv("TAUTULLI_URL")), "/")
 	apiKey = strings.TrimSpace(os.Getenv("TAUTULLI_API_KEY"))
-	metricsPort = intFromEnv("METRICS_PORT", 8000)
-	scrapeInterval = intFromEnv("SCRAPE_INTERVAL", 30)
-	requestTimeout = intFromEnv("REQUEST_TIMEOUT", 10)
+	metricsPort = intFromEnv("METRICS_PORT", 8000, &errs)
+	scrapeInterval = intFromEnv("SCRAPE_INTERVAL", 30, &errs)
+	requestTimeout = intFromEnv("REQUEST_TIMEOUT", 10, &errs)
 	httpClient.Timeout = time.Duration(requestTimeout) * time.Second
+
+	return errs
 }
 
-func intFromEnv(name string, def int) int {
+func intFromEnv(name string, def int, errs *[]string) int {
 	v := os.Getenv(name)
 	if v == "" {
 		return def
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		logError(fmt.Sprintf("%s '%s' is not a valid integer", name, v))
-		os.Exit(1)
+		*errs = append(*errs, fmt.Sprintf("%s '%s' is not a valid integer", name, v))
+		return def
 	}
 	return n
 }
@@ -134,6 +139,10 @@ func validateConfig() []string {
 			errs = append(errs, fmt.Sprintf("TAUTULLI_URL scheme must be http or https, not '%s'", parsed.Scheme))
 		case parsed.Host == "":
 			errs = append(errs, fmt.Sprintf("TAUTULLI_URL '%s' is not a valid URL", tautulliURL))
+		case parsed.User != nil:
+			errs = append(errs, "TAUTULLI_URL must not include user credentials")
+		case parsed.RawQuery != "" || parsed.Fragment != "":
+			errs = append(errs, "TAUTULLI_URL must not include a query string or fragment")
 		}
 	}
 
@@ -149,6 +158,14 @@ func validateConfig() []string {
 
 	if scrapeInterval < 5 {
 		errs = append(errs, fmt.Sprintf("SCRAPE_INTERVAL %d is too low (minimum 5 seconds)", scrapeInterval))
+	}
+
+	if requestTimeout < 1 {
+		errs = append(errs, fmt.Sprintf("REQUEST_TIMEOUT %d is not valid (minimum 1 second)", requestTimeout))
+	}
+
+	if _, ok := levelOrder[logLevel]; !ok {
+		errs = append(errs, fmt.Sprintf("LOG_LEVEL '%s' is not valid (must be DEBUG, INFO, WARNING, or ERROR)", logLevel))
 	}
 
 	return errs
@@ -208,7 +225,6 @@ type tautulliResponse struct {
 }
 
 func recordFailure(format string, args ...any) {
-	metricsLock.Lock()
 	consecutiveFailures++
 	failureCount := consecutiveFailures
 	now := time.Now()
@@ -216,7 +232,6 @@ func recordFailure(format string, args ...any) {
 		firstFailureAt = now
 	}
 	circuitOpenedAt = now
-	metricsLock.Unlock()
 	up.Set(0)
 	scrapeFailuresTotal.Inc()
 	msg := fmt.Sprintf(format, args...)
@@ -230,46 +245,63 @@ func plural(n int, word string) string {
 	return word + "s"
 }
 
-func getTautulliActivity() {
-	metricsLock.Lock()
+func getTautulliActivity(ctx context.Context) {
 	if consecutiveFailures >= maxConsecutiveFailures {
 		timeSinceOpen := time.Since(circuitOpenedAt)
 		if timeSinceOpen < circuitBreakerResetInterval {
-			failures := consecutiveFailures
-			metricsLock.Unlock()
-			logError(fmt.Sprintf("Circuit breaker active: %d consecutive failures", failures))
+			logWarning(fmt.Sprintf("Circuit breaker active: %d consecutive failures; HTTP scrape skipped", consecutiveFailures))
 			return
 		}
 		logInfo(fmt.Sprintf("Circuit breaker half-open: probing after %ds", int(timeSinceOpen.Seconds())))
 	}
-	metricsLock.Unlock()
 
-	apiEndpoint := tautulliURL + "/api/v2"
+	apiEndpoint, err := url.Parse(tautulliURL)
+	if err != nil {
+		recordFailure("Invalid Tautulli URL: %v", err)
+		return
+	}
+	apiEndpoint.Path = strings.TrimRight(apiEndpoint.Path, "/") + "/api/v2"
 	params := url.Values{}
 	params.Set("apikey", apiKey)
 	params.Set("cmd", "get_activity")
+	apiEndpoint.RawQuery = params.Encode()
 
-	logDebug(fmt.Sprintf("Fetching activity from %s", apiEndpoint))
-	resp, err := httpClient.Get(apiEndpoint + "?" + params.Encode())
+	endpointWithoutQuery := *apiEndpoint
+	endpointWithoutQuery.RawQuery = ""
+	logDebug(fmt.Sprintf("Fetching activity from %s", endpointWithoutQuery.String()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiEndpoint.String(), nil)
 	if err != nil {
+		recordFailure("Failed to construct Tautulli request: %v", err)
+		return
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			logDebug("Tautulli request canceled during shutdown")
+			return
+		}
 		var netErr net.Error
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			recordFailure("Request timeout after %ds", requestTimeout)
 		} else {
-			recordFailure("Connection error: %v", err)
+			recordFailure("Connection error: %s", sanitizeRequestError(err))
 		}
 		return
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		recordFailure("Connection error: %v", err)
+	if resp.StatusCode >= 400 {
+		recordFailure("HTTP error: %s for url: %s", resp.Status, endpointWithoutQuery.String())
 		return
 	}
 
-	if resp.StatusCode >= 400 {
-		recordFailure("HTTP error: %s for url: %s", resp.Status, apiEndpoint)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
+	if err != nil {
+		recordFailure("Connection error while reading response: %v", err)
+		return
+	}
+	if len(body) > maxResponseBodyBytes {
+		recordFailure("Tautulli response exceeded %d bytes", maxResponseBodyBytes)
 		return
 	}
 
@@ -291,7 +323,6 @@ func getTautulliActivity() {
 	activityData := data.Response.Data
 
 	// Reset failure counter on success
-	metricsLock.Lock()
 	priorFailures := consecutiveFailures
 	var outage time.Duration
 	if !firstFailureAt.IsZero() {
@@ -300,10 +331,6 @@ func getTautulliActivity() {
 	consecutiveFailures = 0
 	firstFailureAt = time.Time{}
 	now := time.Now()
-	lastSuccessfulScrape = now
-	metricsLock.Unlock()
-	up.Set(1)
-	lastSuccessTimestamp.Set(float64(now.Unix()))
 
 	if priorFailures > 0 {
 		recovery := fmt.Sprintf("Collection resumed after %d consecutive %s over %ds",
@@ -354,8 +381,18 @@ func getTautulliActivity() {
 	bandwidthTotal.Set(float64(totalBW))
 	bandwidthLAN.Set(float64(lanBW))
 	bandwidthWAN.Set(float64(wanBW))
+	up.Set(1)
+	lastSuccessTimestamp.Set(float64(now.Unix()))
 
 	logDebug("Metrics updated")
+}
+
+func sanitizeRequestError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+	}
+	return strings.ReplaceAll(err.Error(), apiKey, "[REDACTED]")
 }
 
 func healthzHandler(w http.ResponseWriter, _ *http.Request) {
@@ -412,6 +449,11 @@ func signalName(s os.Signal) string {
 	}
 }
 
+type stopEvent struct {
+	signal os.Signal
+	err    error
+}
+
 func run(sigCh chan os.Signal) int {
 	logInfo("Starting Plex exporter")
 
@@ -426,6 +468,7 @@ func run(sigCh chan os.Signal) int {
 	// Register signal handlers for graceful shutdown
 	// Note: SIGKILL and SIGSTOP cannot be caught
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
 	logInfo("Signal handlers registered for graceful shutdown")
 
 	// Start HTTP server with health endpoints
@@ -435,20 +478,60 @@ func run(sigCh chan os.Signal) int {
 		logError(fmt.Sprintf("Failed to start metrics server: %v", err))
 		return 1
 	}
-	go server.Serve(listener)
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	stopCh := make(chan stopEvent, 1)
+	reportStop := func(event stopEvent) {
+		select {
+		case stopCh <- event:
+			cancelRun()
+		case <-runCtx.Done():
+		}
+	}
+
+	go func() {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			reportStop(stopEvent{err: err})
+		}
+	}()
+	go func() {
+		select {
+		case sig := <-sigCh:
+			reportStop(stopEvent{signal: sig})
+		case <-runCtx.Done():
+		}
+	}()
 
 	logInfo(fmt.Sprintf("Metrics server started on port %d", metricsPort))
 	logInfo("Health endpoints: /healthz (liveness), /ready (readiness), /metrics")
 
 	// Main loop
 	shuttingDown := false
+	exitCode := 0
 	for !shuttingDown {
-		getTautulliActivity()
+		getTautulliActivity(runCtx)
+
+		if runCtx.Err() != nil {
+			event := <-stopCh
+			if event.err != nil {
+				logError(fmt.Sprintf("Metrics server stopped unexpectedly: %v", event.err))
+				exitCode = 1
+			} else {
+				logInfo(fmt.Sprintf("Received %s, initiating graceful shutdown", signalName(event.signal)))
+			}
+			break
+		}
 
 		// Wait for SCRAPE_INTERVAL or until shutdown is requested
 		select {
-		case sig := <-sigCh:
-			logInfo(fmt.Sprintf("Received %s, initiating graceful shutdown", signalName(sig)))
+		case event := <-stopCh:
+			if event.err != nil {
+				logError(fmt.Sprintf("Metrics server stopped unexpectedly: %v", event.err))
+				exitCode = 1
+			} else {
+				logInfo(fmt.Sprintf("Received %s, initiating graceful shutdown", signalName(event.signal)))
+			}
 			shuttingDown = true
 		case <-time.After(time.Duration(scrapeInterval) * time.Second):
 		}
@@ -456,12 +539,30 @@ func run(sigCh chan os.Signal) int {
 
 	// Cleanup on shutdown
 	logInfo("Shutting down HTTP server")
-	server.Close()
-	logInfo("Exporter stopped gracefully")
-	return 0
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), serverShutdownTimeout)
+	defer cancelShutdown()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logError(fmt.Sprintf("Graceful HTTP shutdown failed: %v", err))
+		server.Close()
+	}
+	if exitCode == 0 {
+		logInfo("Exporter stopped gracefully")
+	} else {
+		logError("Exporter stopped after metrics server failure")
+	}
+	return exitCode
+}
+
+func runFromEnvironment(sigCh chan os.Signal) int {
+	if errs := loadConfig(); len(errs) > 0 {
+		for _, err := range errs {
+			logError(err)
+		}
+		return 1
+	}
+	return run(sigCh)
 }
 
 func main() {
-	loadConfig()
-	os.Exit(run(make(chan os.Signal, 1)))
+	os.Exit(runFromEnvironment(make(chan os.Signal, 1)))
 }

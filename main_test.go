@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -24,7 +26,6 @@ const (
 
 func resetState() {
 	consecutiveFailures = 0
-	lastSuccessfulScrape = time.Time{}
 	circuitOpenedAt = time.Time{}
 	firstFailureAt = time.Time{}
 	tautulliURL = validURL
@@ -85,6 +86,9 @@ func TestValidateConfig(t *testing.T) {
 		{"url without scheme", "tautulli.example.com", validKey, 8000, 30, false},
 		{"url with invalid scheme", "ftp://tautulli.example.com", validKey, 8000, 30, false},
 		{"url with no host", "http://", validKey, 8000, 30, false},
+		{"url with user credentials", "http://user:password@tautulli.example.com", validKey, 8000, 30, false},
+		{"url with query", "http://tautulli.example.com?proxy=true", validKey, 8000, 30, false},
+		{"url with fragment", "http://tautulli.example.com#fragment", validKey, 8000, 30, false},
 		{"missing api key", validURL, "", 8000, 30, false},
 		{"short api key", validURL, "tooshort", 8000, 30, false},
 		{"api key with invalid chars", validURL, "invalid-key-here!!", 8000, 30, false},
@@ -115,6 +119,24 @@ func TestValidateConfig(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRejectsInvalidTimeoutAndLogLevel(t *testing.T) {
+	for _, timeout := range []int{0, -1} {
+		t.Run(fmt.Sprintf("timeout_%d", timeout), func(t *testing.T) {
+			resetState()
+			requestTimeout = timeout
+			if errs := validateConfig(); len(errs) == 0 {
+				t.Fatalf("REQUEST_TIMEOUT=%d unexpectedly passed validation", timeout)
+			}
+		})
+	}
+
+	resetState()
+	logLevel = "BOGUS"
+	if errs := validateConfig(); len(errs) == 0 {
+		t.Fatal("invalid LOG_LEVEL unexpectedly passed validation")
+	}
+}
+
 func TestValidateConfigMultipleErrors(t *testing.T) {
 	resetState()
 	tautulliURL = ""
@@ -137,10 +159,29 @@ func TestCircuitOpenWithinCooldownSkipsRequest(t *testing.T) {
 	consecutiveFailures = maxConsecutiveFailures
 	circuitOpenedAt = time.Now() // just opened
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if *calls != 0 {
 		t.Errorf("expected no request while circuit open, got %d", *calls)
+	}
+}
+
+func TestCircuitBreakerSkipDoesNotCountAsFailedHTTPRequest(t *testing.T) {
+	resetState()
+	var buf bytes.Buffer
+	logOut = &buf
+	logLevel = "WARNING"
+	consecutiveFailures = maxConsecutiveFailures
+	circuitOpenedAt = time.Now()
+	before := testutil.ToFloat64(scrapeFailuresTotal)
+
+	getTautulliActivity(context.Background())
+
+	if got := testutil.ToFloat64(scrapeFailuresTotal); got != before {
+		t.Fatalf("failure counter changed on skipped request: got %v, want %v", got, before)
+	}
+	if !strings.Contains(buf.String(), "HTTP scrape skipped") {
+		t.Fatalf("circuit-breaker skip warning missing: %q", buf.String())
 	}
 }
 
@@ -151,7 +192,7 @@ func TestCircuitHalfOpenAfterCooldownProbes(t *testing.T) {
 	consecutiveFailures = maxConsecutiveFailures
 	circuitOpenedAt = time.Now().Add(-(circuitBreakerResetInterval + time.Second))
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if *calls != 1 {
 		t.Errorf("expected 1 probe request, got %d", *calls)
@@ -168,7 +209,7 @@ func TestFailedProbeRearmsCooldown(t *testing.T) {
 	oldOpenedAt := time.Now().Add(-(circuitBreakerResetInterval + 10*time.Second))
 	circuitOpenedAt = oldOpenedAt
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if !circuitOpenedAt.After(oldOpenedAt) {
 		t.Error("circuit_opened_at must be refreshed after failed probe")
@@ -179,7 +220,7 @@ func TestFailuresIncrementCounter(t *testing.T) {
 	resetState()
 	tautulliURL = "http://127.0.0.1:1"
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if consecutiveFailures != 1 {
 		t.Errorf("expected 1 failure, got %d", consecutiveFailures)
@@ -195,15 +236,15 @@ func TestSuccessResetsFailureCounterAndTimestamp(t *testing.T) {
 	srv, _ := activityServer(t, activityJSON(2, 1, 0, 1, 5000, 3000, 2000, ""))
 	tautulliURL = srv.URL
 	consecutiveFailures = 3
-	before := time.Now()
+	lastSuccessTimestamp.Set(0)
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if consecutiveFailures != 0 {
 		t.Errorf("expected failures reset to 0, got %d", consecutiveFailures)
 	}
-	if lastSuccessfulScrape.Before(before) {
-		t.Error("last_successful_scrape not updated")
+	if got := testutil.ToFloat64(lastSuccessTimestamp); got <= 0 {
+		t.Error("last-success metric timestamp not updated")
 	}
 }
 
@@ -215,13 +256,13 @@ func TestRecoveryAfterFailuresIsLogged(t *testing.T) {
 
 	// Two failures against a dead endpoint, then a working one.
 	tautulliURL = "http://127.0.0.1:1"
-	getTautulliActivity()
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
+	getTautulliActivity(context.Background())
 
 	srv, _ := activityServer(t, activityJSON(0, 0, 0, 0, 0, 0, 0, ""))
 	tautulliURL = srv.URL
 	buf.Reset()
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	line := buf.String()
 	for _, want := range []string{`"level":"INFO"`, "Collection resumed after 2 consecutive failures"} {
@@ -245,7 +286,7 @@ func TestRecoveryFromOpenCircuitMentionsBreaker(t *testing.T) {
 	firstFailureAt = time.Now().Add(-90 * time.Second)
 	circuitOpenedAt = time.Now().Add(-(circuitBreakerResetInterval + time.Second))
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	line := buf.String()
 	if !strings.Contains(line, "Collection resumed after 5 consecutive failures over 90s; circuit breaker closed") {
@@ -261,7 +302,7 @@ func TestNoRecoveryLogWithoutPriorFailures(t *testing.T) {
 	srv, _ := activityServer(t, activityJSON(0, 0, 0, 0, 0, 0, 0, ""))
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if strings.Contains(buf.String(), "Collection resumed") {
 		t.Errorf("unexpected recovery log on clean scrape: %q", buf.String())
@@ -273,7 +314,7 @@ func TestMetricsSetFromActivityData(t *testing.T) {
 	srv, _ := activityServer(t, activityJSON(3, 1, 1, 1, 9000, 6000, 3000, ""))
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	checks := map[string]struct {
 		got  float64
@@ -304,7 +345,7 @@ func TestTranscodeComponentCountsFromSessions(t *testing.T) {
 	srv, _ := activityServer(t, activityJSON(3, 0, 0, 3, 0, 0, 0, sessions))
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if got := testutil.ToFloat64(transcodeVideo); got != 2 {
 		t.Errorf("video transcodes = %v, want 2", got)
@@ -322,7 +363,7 @@ func TestSessionMissingDecisionDefaultsToDirectPlay(t *testing.T) {
 	srv, _ := activityServer(t, activityJSON(1, 1, 0, 0, 0, 0, 0, "{}"))
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if got := testutil.ToFloat64(transcodeVideo); got != 0 {
 		t.Errorf("video transcodes = %v, want 0", got)
@@ -345,7 +386,7 @@ func TestNumericFieldsAsStringsAreParsed(t *testing.T) {
 	srv, _ := activityServer(t, body)
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if got := testutil.ToFloat64(activeStreamsTotal); got != 4 {
 		t.Errorf("total streams = %v, want 4", got)
@@ -360,7 +401,7 @@ func TestAPIFailureResultIncrementsCounter(t *testing.T) {
 	srv, _ := activityServer(t, `{"response": {"result": "error", "message": "bad key"}}`)
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if consecutiveFailures != 1 {
 		t.Errorf("expected 1 failure, got %d", consecutiveFailures)
@@ -375,7 +416,7 @@ func TestHTTPErrorIncrementsCounter(t *testing.T) {
 	defer srv.Close()
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if consecutiveFailures != 1 {
 		t.Errorf("expected 1 failure, got %d", consecutiveFailures)
@@ -387,7 +428,7 @@ func TestInvalidJSONIncrementsCounter(t *testing.T) {
 	srv, _ := activityServer(t, "not json at all")
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if consecutiveFailures != 1 {
 		t.Errorf("expected 1 failure, got %d", consecutiveFailures)
@@ -403,10 +444,48 @@ func TestTimeoutIncrementsCounter(t *testing.T) {
 	tautulliURL = srv.URL
 	httpClient = &http.Client{Timeout: 50 * time.Millisecond}
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if consecutiveFailures != 1 {
 		t.Errorf("expected 1 failure, got %d", consecutiveFailures)
+	}
+}
+
+func TestConnectionErrorDoesNotLogAPIKey(t *testing.T) {
+	resetState()
+	var buf bytes.Buffer
+	logOut = &buf
+	logLevel = "ERROR"
+	tautulliURL = "http://127.0.0.1:1"
+
+	getTautulliActivity(context.Background())
+
+	if strings.Contains(buf.String(), apiKey) {
+		t.Fatalf("connection error leaked API key: %q", buf.String())
+	}
+}
+
+func TestOversizedResponseIsRejected(t *testing.T) {
+	resetState()
+	srv, _ := activityServer(t, strings.Repeat("x", maxResponseBodyBytes+1))
+	tautulliURL = srv.URL
+
+	getTautulliActivity(context.Background())
+
+	if consecutiveFailures != 1 {
+		t.Fatalf("oversized response failures = %d, want 1", consecutiveFailures)
+	}
+}
+
+func TestCanceledRequestDoesNotCountAsFailure(t *testing.T) {
+	resetState()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	getTautulliActivity(ctx)
+
+	if consecutiveFailures != 0 {
+		t.Fatalf("canceled shutdown request failures = %d, want 0", consecutiveFailures)
 	}
 }
 
@@ -415,7 +494,7 @@ func TestAllErrorsUpdateCircuitOpenedAt(t *testing.T) {
 	tautulliURL = "http://127.0.0.1:1"
 	before := time.Now()
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if circuitOpenedAt.Before(before) {
 		t.Error("circuit_opened_at not updated on failure")
@@ -434,7 +513,7 @@ func TestAPIURLConstructedCorrectly(t *testing.T) {
 	defer srv.Close()
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if gotPath != "/api/v2" {
 		t.Errorf("path = %q, want /api/v2", gotPath)
@@ -481,7 +560,6 @@ func TestReadyReturns200WhenNeverScraped(t *testing.T) {
 
 func TestReadyReturns200WhenRecentlyScraped(t *testing.T) {
 	resetState()
-	lastSuccessfulScrape = time.Now()
 	rec := doRequest("/ready")
 	if rec.Code != 200 {
 		t.Errorf("status = %d, want 200", rec.Code)
@@ -493,7 +571,6 @@ func TestReadyReturns200WhenRecentlyScraped(t *testing.T) {
 // during the outage; plex_up carries that signal instead.
 func TestReadyReturns200WhenScrapeTooOld(t *testing.T) {
 	resetState()
-	lastSuccessfulScrape = time.Now().Add(-time.Duration(scrapeInterval*3) * time.Second)
 	rec := doRequest("/ready")
 	if rec.Code != 200 {
 		t.Errorf("status = %d, want 200 (upstream health must not gate readiness)", rec.Code)
@@ -505,7 +582,6 @@ func TestReadyReturns200WhenScrapeTooOld(t *testing.T) {
 
 func TestReadyReturns200WhenCircuitBreakerActive(t *testing.T) {
 	resetState()
-	lastSuccessfulScrape = time.Now().Add(-time.Duration(scrapeInterval*3) * time.Second)
 	consecutiveFailures = maxConsecutiveFailures
 	rec := doRequest("/ready")
 	if rec.Code != 200 {
@@ -538,7 +614,7 @@ func TestSuccessfulScrapeSetsUpAndTimestamp(t *testing.T) {
 	defer srv.Close()
 	tautulliURL = srv.URL
 
-	getTautulliActivity()
+	getTautulliActivity(context.Background())
 
 	if got := testutil.ToFloat64(up); got != 1 {
 		t.Errorf("plex_up = %v, want 1 after a successful scrape", got)
@@ -615,7 +691,9 @@ func TestLoadConfigReadsAndNormalizesEnv(t *testing.T) {
 	t.Setenv("SCRAPE_INTERVAL", "15")
 	t.Setenv("REQUEST_TIMEOUT", "5")
 
-	loadConfig()
+	if errs := loadConfig(); len(errs) > 0 {
+		t.Fatalf("loadConfig() errors = %v", errs)
+	}
 
 	if logLevel != "DEBUG" {
 		t.Errorf("logLevel = %q, want DEBUG (uppercased)", logLevel)
@@ -641,7 +719,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 		os.Unsetenv(v)
 	}
 
-	loadConfig()
+	if errs := loadConfig(); len(errs) > 0 {
+		t.Fatalf("loadConfig() errors = %v", errs)
+	}
 
 	if logLevel != "ERROR" { // untouched when LOG_LEVEL is unset (resetState set ERROR)
 		t.Errorf("logLevel = %q, want ERROR (unchanged)", logLevel)
@@ -651,6 +731,21 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if metricsPort != 8000 || scrapeInterval != 30 || requestTimeout != 10 {
 		t.Errorf("ints = %d/%d/%d, want defaults 8000/30/10", metricsPort, scrapeInterval, requestTimeout)
+	}
+}
+
+func TestLoadConfigReturnsIntegerErrors(t *testing.T) {
+	resetState()
+	t.Setenv("METRICS_PORT", "not-a-port")
+	t.Setenv("SCRAPE_INTERVAL", "not-an-interval")
+	t.Setenv("REQUEST_TIMEOUT", "not-a-timeout")
+
+	errs := loadConfig()
+	if len(errs) != 3 {
+		t.Fatalf("loadConfig() returned %d errors, want 3: %v", len(errs), errs)
+	}
+	if metricsPort != 8000 || scrapeInterval != 30 || requestTimeout != 10 {
+		t.Fatalf("invalid integers did not fall back to defaults: %d/%d/%d", metricsPort, scrapeInterval, requestTimeout)
 	}
 }
 
@@ -784,18 +879,67 @@ func TestRunExitsOnServerStartFailure(t *testing.T) {
 
 func TestRunScrapesServesAndShutsDownGracefully(t *testing.T) {
 	resetState()
-	srv, calls := activityServer(t, activityJSON(1, 1, 0, 0, 100, 100, 0, ""))
+	requestReceived := make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(requestReceived) })
+		w.Write([]byte(activityJSON(1, 1, 0, 0, 100, 100, 0, "")))
+	}))
+	defer srv.Close()
 	tautulliURL = srv.URL
 	metricsPort = freePort(t)
 
 	sigCh := make(chan os.Signal, 1)
 	defer signal.Stop(sigCh)
-	sigCh <- syscall.SIGTERM // shut down after the first scrape
+	result := make(chan int, 1)
+	go func() { result <- run(sigCh) }()
 
-	if code := run(sigCh); code != 0 {
-		t.Errorf("run() = %d, want 0 on graceful shutdown", code)
+	select {
+	case <-requestReceived:
+		sigCh <- syscall.SIGTERM
+	case <-time.After(2 * time.Second):
+		t.Fatal("exporter did not perform its initial scrape")
 	}
-	if *calls != 1 {
-		t.Errorf("expected 1 scrape before shutdown, got %d", *calls)
+
+	select {
+	case code := <-result:
+		if code != 0 {
+			t.Errorf("run() = %d, want 0 on graceful shutdown", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("exporter did not shut down")
+	}
+}
+
+func TestRunCancelsInFlightScrapeOnShutdown(t *testing.T) {
+	resetState()
+	requestReceived := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(requestReceived)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	tautulliURL = srv.URL
+	metricsPort = freePort(t)
+	httpClient = &http.Client{}
+
+	sigCh := make(chan os.Signal, 1)
+	result := make(chan int, 1)
+	go func() { result <- run(sigCh) }()
+
+	select {
+	case <-requestReceived:
+		sigCh <- syscall.SIGTERM
+	case <-time.After(2 * time.Second):
+		t.Fatal("exporter did not begin its initial scrape")
+	}
+
+	select {
+	case code := <-result:
+		if code != 0 {
+			t.Errorf("run() = %d, want 0 on graceful shutdown", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown did not cancel the in-flight scrape")
 	}
 }

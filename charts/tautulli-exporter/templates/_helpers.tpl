@@ -34,18 +34,53 @@ Create chart name and version as used by the chart label.
 Common labels
 */}}
 {{- define "tautulli-exporter.labels" -}}
-helm.sh/chart: {{ include "tautulli-exporter.chart" . }}
+helm.sh/chart: {{ include "tautulli-exporter.chart" . | quote }}
 {{ include "tautulli-exporter.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 {{- end }}
 
 {{/*
 Selector labels
 */}}
 {{- define "tautulli-exporter.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "tautulli-exporter.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/name: {{ include "tautulli-exporter.name" . | quote }}
+app.kubernetes.io/instance: {{ .Release.Name | quote }}
+{{- end }}
+
+{{/*
+Convert a Prometheus duration composed of y, w, d, h, m, s, and ms units to
+milliseconds so related ServiceMonitor durations can be compared at render time.
+*/}}
+{{- define "tautulli-exporter.durationMillis" -}}
+{{- $duration := toString . -}}
+{{- if not (regexMatch "^([0-9]+(ms|[ywdhms]))+$" $duration) -}}
+{{- fail (printf "invalid Prometheus duration %q" $duration) -}}
+{{- end -}}
+{{- $total := 0 -}}
+{{- range $part := regexFindAll "[0-9]+(ms|[ywdhms])" $duration -1 -}}
+{{- $amount := regexFind "^[0-9]+" $part | int64 -}}
+{{- $unit := regexFind "(ms|[ywdhms])$" $part -}}
+{{- if eq $unit "y" -}}
+{{- $total = add $total (mul $amount 31536000000) -}}
+{{- else if eq $unit "w" -}}
+{{- $total = add $total (mul $amount 604800000) -}}
+{{- else if eq $unit "d" -}}
+{{- $total = add $total (mul $amount 86400000) -}}
+{{- else if eq $unit "h" -}}
+{{- $total = add $total (mul $amount 3600000) -}}
+{{- else if eq $unit "m" -}}
+{{- $total = add $total (mul $amount 60000) -}}
+{{- else if eq $unit "s" -}}
+{{- $total = add $total (mul $amount 1000) -}}
+{{- else -}}
+{{- $total = add $total $amount -}}
+{{- end -}}
+{{- end -}}
+{{- if le $total 0 -}}
+{{- fail (printf "duration %q must be greater than zero" $duration) -}}
+{{- end -}}
+{{- $total -}}
 {{- end }}
