@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.1](https://github.com/mm503/tautulli-exporter/compare/v1.0.0...v1.0.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **ci:** skip chart updates on no change ([b0e69eb](https://github.com/mm503/tautulli-exporter/commit/b0e69eb3b42259285c019f5e5149ef9d90eb4ff2))
+* close wiring and logic gaps found in review ([9a32dd0](https://github.com/mm503/tautulli-exporter/commit/9a32dd0c844e00cf31b3498e4406dcf6b9e5eed0))
+* harden exporter and helm wiring ([382735d](https://github.com/mm503/tautulli-exporter/commit/382735d84b69a037353499ef76239d1deedbc727))
+
 ## [1.0.0](https://github.com/mm503/tautulli-exporter/compare/v0.2.7...v1.0.0) (2026-08-20)
 
 
