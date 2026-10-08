@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3](https://github.com/mm503/tautulli-exporter/compare/v1.0.2...v1.0.3) (2026-10-08)
+
+
+### Bug Fixes
+
+* **deps:** update golang docker tag to v1.27.2 ([844c5c2](https://github.com/mm503/tautulli-exporter/commit/844c5c28f118703cedd7797278727475315bd1a8))
+* **deps:** update module github.com/prometheus/client_golang to v1.25.0 ([ea0ff82](https://github.com/mm503/tautulli-exporter/commit/ea0ff82e008bcf39883e8c3c70d33ddfafe1e42f))
+
 ## [1.0.2](https://github.com/mm503/tautulli-exporter/compare/v1.0.1...v1.0.2) (2026-09-03)
 
 
