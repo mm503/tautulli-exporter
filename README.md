@@ -147,7 +147,7 @@ Configuration is the same environment variables as the container (see
 #### Linux / macOS
 
 ```bash
-VERSION=1.0.4                     # release to install, without the leading "v"  x-release-please-version
+VERSION=1.1.0                     # release to install, without the leading "v"  x-release-please-version
 OS=linux                          # or: darwin
 ARCH=amd64                        # or: arm64, arm (Linux only)
 NAME="tautulli-exporter_${VERSION}_${OS}_${ARCH}"
@@ -207,7 +207,7 @@ journalctl -u tautulli-exporter -f
 #### Windows (PowerShell)
 
 ```powershell
-$Version = "1.0.4"  # x-release-please-version
+$Version = "1.1.0"  # x-release-please-version
 $Arch    = "amd64"   # or: arm64
 $Name    = "tautulli-exporter_${Version}_windows_${Arch}"
 

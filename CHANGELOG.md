@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/mm503/tautulli-exporter/compare/v1.0.4...v1.1.0) (2026-10-20)
+
+
+### Features
+
+* **release:** publish standalone binaries for Linux, macOS and Windows ([8fc21fb](https://github.com/mm503/tautulli-exporter/commit/8fc21fb2158eccf6303d81b5d6045fa9d65af836))
+
 ## [1.0.4](https://github.com/mm503/tautulli-exporter/compare/v1.0.3...v1.0.4) (2026-10-20)
 
 
