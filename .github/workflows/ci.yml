@@ -22,6 +22,9 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v5
 
+      - name: Check versions match
+        run: scripts/check-versions.sh
+
       - name: Lint chart
         run: |
           helm lint charts/tautulli-exporter \
