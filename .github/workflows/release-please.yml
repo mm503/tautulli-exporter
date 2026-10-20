@@ -23,6 +23,9 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v5
 
+      - name: Check versions match
+        run: scripts/check-versions.sh
+
       - name: Lint chart
         run: |
           helm lint charts/tautulli-exporter \
@@ -130,77 +133,51 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  update-chart:
+  helm-release:
     runs-on: ubuntu-latest
     needs: [release-please, docker-release]
     if: needs.release-please.outputs.release_created == 'true'
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
-      - name: Checkout repository
+      - name: Checkout release tag
         uses: actions/checkout@v7
         with:
-          ref: main
-          # Full history so the rebase below has something to replay onto if
-          # another commit lands on main while this job runs.
-          fetch-depth: 0
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - name: Update chart appVersion
-        run: |
-          VERSION="${{ needs.release-please.outputs.tag_name }}"
-          VERSION="${VERSION#v}"
-          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/tautulli-exporter/Chart.yaml
-          sed -i "s#image: ${GHCR_IMAGE}:.*#image: ${GHCR_IMAGE}:${VERSION}#" charts/tautulli-exporter/Chart.yaml
-
-      - name: Bump chart version
-        run: |
-          CHART_VERSION=$(grep '^version:' charts/tautulli-exporter/Chart.yaml | awk '{print $2}')
-          NEW_CHART_VERSION=$(echo "$CHART_VERSION" | awk -F. '{$NF = $NF + 1; print}' OFS='.')
-          sed -i "s/^version: .*/version: ${NEW_CHART_VERSION}/" charts/tautulli-exporter/Chart.yaml
-
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add charts/tautulli-exporter/Chart.yaml
-          if git diff --cached --quiet; then
-            echo "Chart.yaml already matches ${{ needs.release-please.outputs.tag_name }}; nothing to commit"
-            exit 0
-          fi
-          git commit -m "chore(chart): update to app version ${{ needs.release-please.outputs.tag_name }}"
-          git pull --rebase --autostash origin main
-          git push
-
-  helm-release:
-    runs-on: ubuntu-latest
-    needs: [release-please, update-chart]
-    # Runs on every push to main -- rather than only when update-chart ran -- so a
-    # chart-only change (bump Chart.yaml version, no app release) still gets
-    # published, which a plain `needs: update-chart` would skip along with the
-    # skipped job. chart-releaser detects "changed charts" by diffing against the
-    # last chart tag, so it re-packages the current chart on every push until the
-    # next version bump; skip_existing below makes those repeats a no-op instead
-    # of a 422 from the GitHub releases API.
-    if: >-
-      always() &&
-      needs.release-please.result == 'success' &&
-      (needs.update-chart.result == 'success' || needs.update-chart.result == 'skipped')
-    steps:
-      - name: Checkout repository
+      - name: Checkout chart repository index
         uses: actions/checkout@v7
         with:
-          ref: main
-          fetch-depth: 0
+          ref: gh-pages
+          path: gh-pages
 
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Check versions match the release
+        run: scripts/check-versions.sh "${TAG#v}"
 
       - name: Install Helm
         uses: azure/setup-helm@v5
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.7.0
-        with:
-          skip_existing: true
+      # The chart is attached to the app's GitHub release instead of getting a
+      # release of its own. Only index.yaml changes on gh-pages: older entries
+      # keep pointing at their tautulli-exporter-0.2.x releases, and
+      # artifacthub-repo.yml (Artifact Hub verified publisher) is left alone.
+      - name: Package chart and attach it to the release
         env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir .chart
+          helm package charts/tautulli-exporter --destination .chart
+          gh release upload "$TAG" .chart/*.tgz --clobber
+
+      - name: Update chart repository index
+        run: |
+          helm repo index .chart \
+            --url "https://github.com/${{ github.repository }}/releases/download/${TAG}" \
+            --merge gh-pages/index.yaml
+          cp .chart/index.yaml gh-pages/index.yaml
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.yaml
+          git commit -m "Release tautulli-exporter chart ${TAG#v}"
+          git push origin HEAD:gh-pages

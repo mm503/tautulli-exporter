@@ -16,17 +16,24 @@ keywords:
   - tautulli
   - monitoring
 
-# This is the chart version. This version number should be incremented each time you make changes
-# to the chart and its templates. Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.2.5
-
-# This is the version of the exporter image deployed by default (image.tag overrides it).
-appVersion: "1.0.4"
+# The chart is released together with the exporter and carries the same
+# version. release-please updates every line marked x-release-please-version
+# (and the marked block below) in its release PR; see scripts/check-versions.sh.
+# appVersion is the image tag deployed by default (image.tag overrides it).
+version: 1.0.4 # x-release-please-version
+appVersion: "1.0.4" # x-release-please-version
 annotations:
   artifacthub.io/license: MIT
+  # x-release-please-start-version
   artifacthub.io/images: |
     - name: tautulli-exporter
       image: ghcr.io/mm503/tautulli-exporter:1.0.4
       platforms:
         - linux/amd64
         - linux/arm64
+  # x-release-please-end
+  # Artifact Hub shows these for the version being released. Replace them
+  # (or remove them) in the next release so they do not carry over.
+  artifacthub.io/changes: |
+    - kind: changed
+      description: The chart version now matches the exporter version, so it jumps from 0.2.5 to the exporter release
