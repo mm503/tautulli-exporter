@@ -4,6 +4,38 @@ entries:
   - annotations:
       artifacthub.io/images: |
         - name: tautulli-exporter
+          image: ghcr.io/mm503/tautulli-exporter:1.0.4
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: MIT
+    apiVersion: v2
+    appVersion: 1.0.4
+    created: "2026-10-20T12:09:18.179063101Z"
+    description: Prometheus exporter for Plex Media Server metrics via the Tautulli
+      API
+    digest: fdecaa88345b4f89acc13bb5c4c8a9db2263d035c1355f789111f5171aeed774
+    home: https://github.com/mm503/tautulli-exporter
+    icon: https://raw.githubusercontent.com/Tautulli/Tautulli/master/data/interfaces/default/images/logo-circle.png
+    keywords:
+    - prometheus
+    - exporter
+    - plex
+    - tautulli
+    - monitoring
+    maintainers:
+    - name: mm503
+      url: https://github.com/mm503
+    name: tautulli-exporter
+    sources:
+    - https://github.com/mm503/tautulli-exporter
+    type: application
+    urls:
+    - https://github.com/mm503/tautulli-exporter/releases/download/tautulli-exporter-0.2.5/tautulli-exporter-0.2.5.tgz
+    version: 0.2.5
+  - annotations:
+      artifacthub.io/images: |
+        - name: tautulli-exporter
           image: ghcr.io/mm503/tautulli-exporter:1.0.3
           platforms:
             - linux/amd64
@@ -117,4 +149,4 @@ entries:
     urls:
     - https://github.com/mm503/tautulli-exporter/releases/download/tautulli-exporter-0.2.1/tautulli-exporter-0.2.1.tgz
     version: 0.2.1
-generated: "2026-10-08T21:26:54.117781427Z"
+generated: "2026-10-20T12:09:18.179076652Z"
