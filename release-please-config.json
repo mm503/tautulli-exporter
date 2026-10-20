@@ -4,7 +4,14 @@
   "packages": {
     ".": {
       "extra-files": [
-        { "type": "generic", "path": "charts/tautulli-exporter/Chart.yaml" }
+        {
+          "type": "generic",
+          "path": "charts/tautulli-exporter/Chart.yaml"
+        },
+        {
+          "type": "generic",
+          "path": "README.md"
+        }
       ]
     }
   }

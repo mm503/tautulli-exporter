@@ -2,6 +2,26 @@
 
 A Prometheus exporter for Plex Media Server metrics via Tautulli API. Designed for Kubernetes deployment with proper health checks, structured logging, and graceful error handling.
 
+## Table of Contents
+
+- [Features](#features)
+- [Metrics Exposed](#metrics-exposed)
+- [Configuration](#configuration)
+- [Endpoints](#endpoints)
+- [Container Images](#container-images)
+  - [Development Images](#development-images)
+- [Installation](#installation)
+  - [Docker](#docker)
+  - [Standalone Binary (Linux, macOS, Windows)](#standalone-binary-linux-macos-windows)
+  - [Helm (recommended for Kubernetes)](#helm-recommended-for-kubernetes)
+  - [Kubernetes (plain manifests)](#kubernetes-plain-manifests)
+  - [Prometheus Configuration](#prometheus-configuration)
+- [Grafana Dashboard](#grafana-dashboard)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [License](#license)
+- [Contributing](#contributing)
+
 ## Features
 
 - **Prometheus Metrics** - Exposes Plex streaming metrics in Prometheus format
@@ -105,6 +125,108 @@ docker run -d \
   -p 8000:8000 \
   ghcr.io/mm503/tautulli-exporter
 ```
+
+### Standalone Binary (Linux, macOS, Windows)
+
+The exporter is a single static binary with no runtime dependencies, so it can
+run on any host that can reach Tautulli — no Docker or Kubernetes required. Each
+[GitHub release](https://github.com/mm503/tautulli-exporter/releases) carries
+archives for:
+
+| OS | Architectures | Archive |
+|----|---------------|---------|
+| Linux | `amd64`, `arm64`, `arm` (ARMv7, e.g. Raspberry Pi) | `tautulli-exporter_<version>_linux_<arch>.tar.gz` |
+| macOS | `amd64` (Intel), `arm64` (Apple Silicon) | `tautulli-exporter_<version>_darwin_<arch>.tar.gz` |
+| Windows | `amd64`, `arm64` | `tautulli-exporter_<version>_windows_<arch>.zip` |
+
+A `checksums.txt` with SHA-256 sums of every archive is attached to the same release.
+
+Configuration is the same environment variables as the container (see
+[Configuration](#configuration)); the binary takes no command-line flags.
+
+#### Linux / macOS
+
+```bash
+VERSION=1.0.4                     # release to install, without the leading "v"  x-release-please-version
+OS=linux                          # or: darwin
+ARCH=amd64                        # or: arm64, arm (Linux only)
+NAME="tautulli-exporter_${VERSION}_${OS}_${ARCH}"
+
+curl -fLO "https://github.com/mm503/tautulli-exporter/releases/download/v${VERSION}/${NAME}.tar.gz"
+curl -fLO "https://github.com/mm503/tautulli-exporter/releases/download/v${VERSION}/checksums.txt"
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
+
+tar -xzf "${NAME}.tar.gz"
+sudo install -m 0755 "${NAME}/tautulli-exporter" /usr/local/bin/
+
+TAUTULLI_URL=http://your-tautulli:8181 \
+TAUTULLI_API_KEY=your-api-key \
+tautulli-exporter
+```
+
+On macOS the binary is not signed or notarized. If you downloaded the archive
+with a browser, Gatekeeper will block it; clear the quarantine flag first:
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/tautulli-exporter
+```
+
+(Archives fetched with `curl` as above are not quarantined.)
+
+To keep it running on Linux, a minimal systemd unit:
+
+```ini
+# /etc/systemd/system/tautulli-exporter.service
+[Unit]
+Description=Tautulli Prometheus exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/tautulli-exporter.env
+ExecStart=/usr/local/bin/tautulli-exporter
+DynamicUser=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# /etc/tautulli-exporter.env holds the API key, so keep it root-only
+sudo install -m 0600 /dev/null /etc/tautulli-exporter.env
+sudo tee /etc/tautulli-exporter.env >/dev/null <<'EOF'
+TAUTULLI_URL=http://your-tautulli:8181
+TAUTULLI_API_KEY=your-api-key
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now tautulli-exporter
+journalctl -u tautulli-exporter -f
+```
+
+#### Windows (PowerShell)
+
+```powershell
+$Version = "1.0.4"  # x-release-please-version
+$Arch    = "amd64"   # or: arm64
+$Name    = "tautulli-exporter_${Version}_windows_${Arch}"
+
+Invoke-WebRequest "https://github.com/mm503/tautulli-exporter/releases/download/v$Version/$Name.zip" -OutFile "$Name.zip"
+(Get-FileHash "$Name.zip" -Algorithm SHA256).Hash   # compare with checksums.txt
+Expand-Archive "$Name.zip" -DestinationPath .
+
+$env:TAUTULLI_URL     = "http://your-tautulli:8181"
+$env:TAUTULLI_API_KEY = "your-api-key"
+& ".\$Name\tautulli-exporter.exe"
+```
+
+Windows Defender Firewall may prompt to allow inbound connections the first time
+it runs; allow it on the networks Prometheus scrapes from. To run it in the
+background at boot, register it with Task Scheduler or a service wrapper such as
+[NSSM](https://nssm.cc/), setting the same environment variables.
+
+Once running on any platform, metrics are at `http://<host>:8000/metrics`
+(change the port with `METRICS_PORT`).
 
 ### Helm (recommended for Kubernetes)
 
