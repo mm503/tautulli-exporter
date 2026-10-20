@@ -133,6 +133,51 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  binary-release:
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Same flags as the Dockerfile. CGO is off so every target cross-compiles
+      # from this runner and the binaries have no libc dependency.
+      - name: Build binaries
+        run: |
+          mkdir dist
+          for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            name="tautulli-exporter_${TAG#v}_${os}_${arch}"
+            ext=""
+            [ "$os" = windows ] && ext=".exe"
+            mkdir "dist/$name"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=7 \
+              go build -trimpath -ldflags="-s -w" -o "dist/$name/tautulli-exporter$ext" .
+            cp LICENSE README.md "dist/$name/"
+            if [ "$os" = windows ]; then
+              (cd dist && zip -qr "$name.zip" "$name")
+            else
+              tar -C dist -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          cd dist && sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Attach binaries to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" dist/*.tar.gz dist/*.zip dist/checksums.txt --clobber
+
   helm-release:
     runs-on: ubuntu-latest
     needs: [release-please, docker-release]
