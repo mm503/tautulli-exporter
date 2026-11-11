@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/mm503/tautulli-exporter/compare/v1.1.0...v1.1.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **deps:** update golang docker tag to v1.27.4 ([515324b](https://github.com/mm503/tautulli-exporter/commit/515324b5cc753d0f0a4aaabe1deb3e49a3a848a4))
+
 ## [1.1.0](https://github.com/mm503/tautulli-exporter/compare/v1.0.4...v1.1.0) (2026-10-20)
 
 
